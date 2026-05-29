@@ -3,7 +3,7 @@ import DashboardLayout from "../../components/layout/DashboardLayout";
 
 export default function DistrictApplicationsPage() {
   return (
-    <DashboardLayout>
+    <DashboardLayout role="superadmin">
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <h2 className="fw-bold mb-1">Permohonan Daerah</h2>

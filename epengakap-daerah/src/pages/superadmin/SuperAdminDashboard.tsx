@@ -2,7 +2,7 @@ import DashboardLayout from "../../components/layout/DashboardLayout";
 
 export default function SuperAdminDashboard() {
   return (
-    <DashboardLayout>
+    <DashboardLayout role="superadmin">
       <h2 className="fw-bold">Super Admin Dashboard</h2>
       <p className="text-muted">Pantau permohonan daerah dan status sistem.</p>
 

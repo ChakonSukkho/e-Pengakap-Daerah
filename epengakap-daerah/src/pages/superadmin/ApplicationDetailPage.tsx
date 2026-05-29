@@ -3,7 +3,7 @@ import DashboardLayout from "../../components/layout/DashboardLayout";
 
 export default function ApplicationDetailPage() {
   return (
-    <DashboardLayout>
+    <DashboardLayout role="superadmin">
       <div className="mb-4">
         <Link to="/superadmin/applications" className="text-success text-decoration-none">
           ← Kembali ke Permohonan
@@ -91,6 +91,6 @@ export default function ApplicationDetailPage() {
           </div>
         </div>
       </div>
-    </DashboardLayout>
+    </DashboardLayout >
   );
 }
