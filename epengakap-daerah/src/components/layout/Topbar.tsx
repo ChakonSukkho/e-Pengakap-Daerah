@@ -1,4 +1,41 @@
-export default function Topbar() {
+type RoleType =
+  | "superadmin"
+  | "district"
+  | "assistantCommissioner"
+  | "groupLeader"
+  | "assistantLeader";
+
+const profileMap: Record<RoleType, { name: string; roleName: string; initials: string }> = {
+  superadmin: {
+    name: "Ahmad Razali",
+    roleName: "Super Admin",
+    initials: "SA",
+  },
+  district: {
+    name: "Encik Kamarul",
+    roleName: "Pesuruhjaya Daerah",
+    initials: "PD",
+  },
+  assistantCommissioner: {
+    name: "Pn. Siti Aminah",
+    roleName: "Penolong Pesuruhjaya",
+    initials: "PP",
+  },
+  groupLeader: {
+    name: "En. Farid Hassan",
+    roleName: "Pemimpin Kumpulan",
+    initials: "PK",
+  },
+  assistantLeader: {
+    name: "Cik Nur Aisyah",
+    roleName: "Penolong Pemimpin",
+    initials: "PT",
+  },
+};
+
+export default function Topbar({ role = "district" }: { role?: RoleType }) {
+  const profile = profileMap[role];
+
   return (
     <header className="bg-white border-bottom px-4 py-3 d-flex justify-content-between align-items-center sticky-top">
       <div>
@@ -17,11 +54,12 @@ export default function Topbar() {
             className="bg-success text-white rounded-circle d-flex align-items-center justify-content-center fw-bold"
             style={{ width: 36, height: 36 }}
           >
-            PD
+            {profile.initials}
           </div>
+
           <div>
-            <div className="fw-semibold small">Encik Kamarul</div>
-            <small className="text-muted">Pesuruhjaya Daerah</small>
+            <div className="fw-semibold small">{profile.name}</div>
+            <small className="text-muted">{profile.roleName}</small>
           </div>
         </div>
       </div>

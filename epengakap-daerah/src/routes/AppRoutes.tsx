@@ -8,33 +8,74 @@ import PendingApprovalPage from "../pages/public/PendingApprovalPage";
 import SuperAdminDashboard from "../pages/superadmin/SuperAdminDashboard";
 import DistrictApplicationsPage from "../pages/superadmin/DistrictApplicationsPage";
 import ApplicationDetailPage from "../pages/superadmin/ApplicationDetailPage";
+import DistrictManagementPage from "../pages/superadmin/DistrictManagementPage";
+import SystemUsersPage from "../pages/superadmin/SystemUsersPage";
+import SystemAuditLogPage from "../pages/superadmin/SystemAuditLogPage";
 
 import DistrictDashboard from "../pages/district/DistrictDashboard";
 import UserManagementPage from "../pages/district/UserManagementPage";
 import GroupManagementPage from "../pages/district/GroupManagementPage";
 import MemberManagementPage from "../pages/district/MemberManagementPage";
-import DistrictSettingsPage from "../pages/superadmin/DistrictApplicationsPage";
+import DistrictSettingsPage from "../pages/district/DistrictSettingsPage";
 import AuditLogPage from "../pages/district/AuditLogPage";
 
+import AssistantCommissionerDashboard from "../pages/assistantCommissioner/AssistantCommissionerDashboard";
+import ACMemberManagementPage from "../pages/assistantCommissioner/ACMemberManagementPage";
+import ACGroupManagementPage from "../pages/assistantCommissioner/ACGroupManagementPage";
+import ReportsPage from "../pages/assistantCommissioner/ReportsPage";
+
+import GroupLeaderDashboard from "../pages/groupLeader/GroupLeaderDashboard";
+import GroupMembersPage from "../pages/groupLeader/GroupMembersPage";
+import ActivitiesPage from "../pages/groupLeader/ActivitiesPage";
+import ProfilePage from "../pages/groupLeader/ProfilePage";
+
+import AssistantLeaderDashboard from "../pages/assistantLeader/AssistantLeaderDashboard";
+import AssistantMembersPage from "../pages/assistantLeader/AssistantMembersPage";
+import AssistantActivitiesPage from "../pages/assistantLeader/AssistantActivitiesPage";
+import AssistantProfilePage from "../pages/assistantLeader/AssistantProfilePage";
 
 export default function AppRoutes() {
   return (
     <Routes>
+      {/* Public */}
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register-district" element={<RegisterDistrictPage />} />
       <Route path="/pending-approval" element={<PendingApprovalPage />} />
 
+      {/* Super Admin */}
       <Route path="/superadmin" element={<SuperAdminDashboard />} />
       <Route path="/superadmin/applications" element={<DistrictApplicationsPage />} />
       <Route path="/superadmin/applications/:id" element={<ApplicationDetailPage />} />
+      <Route path="/superadmin/districts" element={<DistrictManagementPage />} />
+      <Route path="/superadmin/users" element={<SystemUsersPage />} />
+      <Route path="/superadmin/audit" element={<SystemAuditLogPage />} />
 
+      {/* District Commissioner */}
       <Route path="/district/dashboard" element={<DistrictDashboard />} />
       <Route path="/district/users" element={<UserManagementPage />} />
       <Route path="/district/groups" element={<GroupManagementPage />} />
       <Route path="/district/members" element={<MemberManagementPage />} />
       <Route path="/district/settings" element={<DistrictSettingsPage />} />
       <Route path="/district/audit" element={<AuditLogPage />} />
+
+      {/* Assistant Commissioner */}
+      <Route path="/assistant-commissioner/dashboard" element={<AssistantCommissionerDashboard />} />
+      <Route path="/assistant-commissioner/members" element={<ACMemberManagementPage />} />
+      <Route path="/assistant-commissioner/groups" element={<ACGroupManagementPage />} />
+      <Route path="/assistant-commissioner/reports" element={<ReportsPage />} />
+
+      {/* Group Leader */}
+      <Route path="/group-leader/dashboard" element={<GroupLeaderDashboard />} />
+      <Route path="/group-leader/members" element={<GroupMembersPage />} />
+      <Route path="/group-leader/activities" element={<ActivitiesPage />} />
+      <Route path="/group-leader/profile" element={<ProfilePage />} />
+
+      {/* Assistant Leader */}
+      <Route path="/assistant-leader/dashboard" element={<AssistantLeaderDashboard />} />
+      <Route path="/assistant-leader/members" element={<AssistantMembersPage />} />
+      <Route path="/assistant-leader/activities" element={<AssistantActivitiesPage />} />
+      <Route path="/assistant-leader/profile" element={<AssistantProfilePage />} />
     </Routes>
   );
 }
