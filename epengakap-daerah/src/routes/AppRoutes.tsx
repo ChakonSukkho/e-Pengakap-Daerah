@@ -10,6 +10,12 @@ import DistrictApplicationsPage from "../pages/superadmin/DistrictApplicationsPa
 import ApplicationDetailPage from "../pages/superadmin/ApplicationDetailPage";
 
 import DistrictDashboard from "../pages/district/DistrictDashboard";
+import UserManagementPage from "../pages/district/UserManagementPage";
+import GroupManagementPage from "../pages/district/GroupManagementPage";
+import MemberManagementPage from "../pages/district/MemberManagementPage";
+import DistrictSettingsPage from "../pages/superadmin/DistrictApplicationsPage";
+import AuditLogPage from "../pages/district/AuditLogPage";
+
 
 export default function AppRoutes() {
   return (
@@ -24,6 +30,11 @@ export default function AppRoutes() {
       <Route path="/superadmin/applications/:id" element={<ApplicationDetailPage />} />
 
       <Route path="/district/dashboard" element={<DistrictDashboard />} />
+      <Route path="/district/users" element={<UserManagementPage />} />
+      <Route path="/district/groups" element={<GroupManagementPage />} />
+      <Route path="/district/members" element={<MemberManagementPage />} />
+      <Route path="/district/settings" element={<DistrictSettingsPage />} />
+      <Route path="/district/audit" element={<AuditLogPage />} />
     </Routes>
   );
 }
