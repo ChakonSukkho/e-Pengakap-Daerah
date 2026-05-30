@@ -1,11 +1,114 @@
-.card {
+/* =========================================
+   EPENGAKAP CUSTOM UI
+========================================= */
+
+body {
+  background-color: #f8fafc;
+}
+
+/* Sidebar */
+.sidebar-shell {
+  transition: width 0.3s ease;
+}
+
+.sidebar-panel {
+  background: linear-gradient(
+    180deg,
+    #1f2937 0%,
+    #17212b 100%
+  );
+}
+
+.sidebar-link {
   transition: all 0.2s ease;
+}
+
+.sidebar-link:hover {
+  background: rgba(25, 135, 84, 0.18);
+  color: #ffffff !important;
+}
+
+.role-badge {
+  background: rgba(25, 135, 84, 0.15);
+  border: 1px solid rgba(25, 135, 84, 0.3);
+  color: #d1fae5;
+}
+
+/* Cards */
+.card {
+  border-radius: 12px;
+  transition: box-shadow 0.2s ease;
 }
 
 .card:hover {
-  transform: translateY(-2px);
+  transform: none !important;
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08);
 }
 
+/* Tables */
 .table-hover tbody tr {
-  transition: all 0.2s ease;
+  transition: background-color 0.15s ease;
+}
+
+.table-hover tbody tr:hover {
+  background-color: rgba(25, 135, 84, 0.03);
+}
+
+/* Buttons */
+.btn {
+  border-radius: 10px;
+}
+
+.btn-success {
+  background-color: #198754;
+  border-color: #198754;
+}
+
+.btn-success:hover {
+  background-color: #157347;
+  border-color: #146c43;
+}
+
+/* Inputs */
+.form-control,
+.form-select {
+  border-radius: 10px;
+}
+
+.form-control:focus,
+.form-select:focus {
+  box-shadow: 0 0 0 0.15rem rgba(25, 135, 84, 0.15);
+  border-color: #198754;
+}
+
+/* Search Bar */
+.topbar-search {
+  max-width: 420px;
+}
+
+/* Dashboard Stats */
+.stat-card {
+  border-radius: 12px;
+}
+
+/* Badges */
+.badge {
+  font-weight: 500;
+  border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+}
+
+/* Smooth Page Feel */
+main {
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0.85;
+  }
+
+  to {
+    opacity: 1;
+  }
 }

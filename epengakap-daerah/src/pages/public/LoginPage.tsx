@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import pengakapLogo from "../../assets/pengakap-logo.png";
 
 export default function LoginPage() {
   return (
@@ -8,10 +9,22 @@ export default function LoginPage() {
         <div className="col-lg-6 d-none d-lg-flex flex-column justify-content-between bg-dark text-white p-5">
           <Link to="/" className="d-flex align-items-center gap-3 text-white text-decoration-none">
             <div
-              className="bg-success rounded-3 d-flex align-items-center justify-content-center"
-              style={{ width: 44, height: 44 }}
+              className="bg-white rounded-circle d-flex align-items-center justify-content-center"
+              style={{
+                width: 56,
+                height: 56,
+                overflow: "hidden",
+              }}
             >
-              <i className="bi bi-shield-check fs-4"></i>
+              <img
+                src={pengakapLogo}
+                alt="Persekutuan Pengakap Malaysia"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "contain",
+                }}
+              />
             </div>
 
             <div>
@@ -32,7 +45,7 @@ export default function LoginPage() {
           </div>
 
           <small className="text-white-50">
-            © 2026 Persekutuan Pengakap Malaysia
+            © 2026 ePengakap Daerah Developed by Bintara Solutions Sdn Bhd
           </small>
         </div>
 

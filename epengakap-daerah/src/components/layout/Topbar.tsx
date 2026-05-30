@@ -33,7 +33,13 @@ const profileMap: Record<RoleType, { name: string; roleName: string; initials: s
   },
 };
 
-export default function Topbar({ role = "district" }: { role?: RoleType }) {
+export default function Topbar({
+  role = "district",
+  onToggleSidebar,
+}: {
+  role?: RoleType;
+  onToggleSidebar?: () => void;
+}) {
   const profile = profileMap[role];
 
   return (

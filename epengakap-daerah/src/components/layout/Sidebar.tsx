@@ -1,4 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
+import pengakapLogo from "../../assets/pengakap-logo.png";
 
 type RoleType =
   | "superadmin"
@@ -21,7 +22,6 @@ const menus: Record<RoleType, MenuItem[]> = {
     { to: "/superadmin/users", label: "Pengguna Sistem", icon: "bi-person-gear" },
     { to: "/superadmin/audit", label: "Log Audit", icon: "bi-journal-text" },
   ],
-
   district: [
     { to: "/district/dashboard", label: "Papan Pemuka", icon: "bi-speedometer2" },
     { to: "/district/users", label: "Pengguna", icon: "bi-person-gear" },
@@ -30,21 +30,18 @@ const menus: Record<RoleType, MenuItem[]> = {
     { to: "/district/settings", label: "Tetapan Daerah", icon: "bi-gear" },
     { to: "/district/audit", label: "Log Audit", icon: "bi-journal-text" },
   ],
-
   assistantCommissioner: [
     { to: "/assistant-commissioner/dashboard", label: "Papan Pemuka", icon: "bi-speedometer2" },
     { to: "/assistant-commissioner/groups", label: "Kumpulan / Sekolah", icon: "bi-mortarboard" },
     { to: "/assistant-commissioner/members", label: "Ahli Pengakap", icon: "bi-people" },
     { to: "/assistant-commissioner/reports", label: "Laporan", icon: "bi-file-earmark-text" },
   ],
-
   groupLeader: [
     { to: "/group-leader/dashboard", label: "Papan Pemuka", icon: "bi-speedometer2" },
     { to: "/group-leader/members", label: "Ahli Kumpulan", icon: "bi-people" },
     { to: "/group-leader/activities", label: "Aktiviti", icon: "bi-calendar-event" },
     { to: "/group-leader/profile", label: "Profil Saya", icon: "bi-person-circle" },
   ],
-
   assistantLeader: [
     { to: "/assistant-leader/dashboard", label: "Papan Pemuka", icon: "bi-speedometer2" },
     { to: "/assistant-leader/members", label: "Ahli Kumpulan", icon: "bi-people" },
@@ -54,59 +51,83 @@ const menus: Record<RoleType, MenuItem[]> = {
 };
 
 const roleInfo: Record<RoleType, { title: string; subtitle: string; badge: string }> = {
-  superadmin: {
-    title: "ePengakap",
-    subtitle: "Super Admin Portal",
-    badge: "Super Admin",
-  },
-  district: {
-    title: "ePengakap",
-    subtitle: "Daerah Portal",
-    badge: "Pesuruhjaya Daerah",
-  },
-  assistantCommissioner: {
-    title: "ePengakap",
-    subtitle: "Penolong Pesuruhjaya",
-    badge: "Penolong Pesuruhjaya",
-  },
-  groupLeader: {
-    title: "ePengakap",
-    subtitle: "Pemimpin Kumpulan",
-    badge: "Pemimpin Kumpulan",
-  },
-  assistantLeader: {
-    title: "ePengakap",
-    subtitle: "Penolong Pemimpin",
-    badge: "Penolong Pemimpin",
-  },
+  superadmin: { title: "ePengakap", subtitle: "Super Admin Portal", badge: "Super Admin" },
+  district: { title: "ePengakap", subtitle: "Daerah Portal", badge: "Pesuruhjaya Daerah" },
+  assistantCommissioner: { title: "ePengakap", subtitle: "Penolong Pesuruhjaya", badge: "Penolong Pesuruhjaya" },
+  groupLeader: { title: "ePengakap", subtitle: "Pemimpin Kumpulan", badge: "Pemimpin Kumpulan" },
+  assistantLeader: { title: "ePengakap", subtitle: "Penolong Pemimpin", badge: "Penolong Pemimpin" },
 };
 
-export default function Sidebar({ role = "district" }: { role?: RoleType }) {
+export default function Sidebar({
+  role = "district",
+  collapsed = false,
+  onToggle,
+}: {
+  role?: RoleType;
+  collapsed?: boolean;
+  onToggle?: () => void;
+}) {
   const location = useLocation();
   const menu = menus[role];
   const info = roleInfo[role];
 
   return (
-    <aside className="bg-dark text-white min-vh-100 p-3" style={{ width: "260px" }}>
-      <div className="d-flex align-items-center gap-2 mb-4">
+    <aside className="sidebar-panel text-white h-100 p-3 w-100 position-relative overflow-auto">
+      <div className={`d-flex align-items-center mb-4 ${collapsed ? "justify-content-center" : "justify-content-between"}`}>
+        <div className="d-flex align-items-center gap-2">
         <div
-          className="bg-success rounded-3 d-flex align-items-center justify-content-center"
-          style={{ width: 38, height: 38 }}
+          className="bg-white rounded-circle d-flex align-items-center justify-content-center"
+          style={{
+            width: 54,
+            height: 54,
+            overflow: "hidden",
+          }}
         >
-          <i className="bi bi-shield-check"></i>
+          <img
+            src={pengakapLogo}
+            alt="Pengakap Malaysia"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+            }}
+          />
         </div>
 
-        <div>
-          <div className="fw-bold">{info.title}</div>
-          <small className="text-white-50">{info.subtitle}</small>
+          {!collapsed && (
+            <div>
+              <div className="fw-bold">{info.title}</div>
+              <small className="text-white-50">{info.subtitle}</small>
+            </div>
+          )}
         </div>
+
+        {!collapsed && (
+          <button className="btn btn-sm btn-outline-light border-0" onClick={onToggle} title="Collapse sidebar">
+            <i className="bi bi-layout-sidebar-inset"></i>
+          </button>
+        )}
       </div>
 
-      <div className="bg-success bg-opacity-25 text-success-emphasis rounded px-3 py-2 mb-3 small fw-semibold">
-        {info.badge}
-      </div>
+      {collapsed && (
+        <button
+          className="btn btn-sm btn-outline-light border-0 w-100 mb-3"
+          onClick={onToggle}
+          title="Open sidebar"
+        >
+          <i className="bi bi-layout-sidebar-inset-reverse"></i>
+        </button>
+      )}
 
-      <div className="small text-white-50 text-uppercase mb-2">Menu Utama</div>
+      {!collapsed && (
+        <div className="role-badge rounded px-3 py-2 mb-3 small fw-semibold">
+          {info.badge}
+        </div>
+      )}
+
+      {!collapsed && (
+        <div className="small text-white-50 text-uppercase mb-2">Menu Utama</div>
+      )}
 
       {menu.map((item) => {
         const active =
@@ -122,21 +143,28 @@ export default function Sidebar({ role = "district" }: { role?: RoleType }) {
           <Link
             key={item.to}
             to={item.to}
-            className={`d-flex align-items-center gap-2 text-decoration-none rounded px-3 py-2 mb-1 ${
-              active ? "bg-success text-white fw-semibold" : "text-white-50"
-            }`}
+            title={collapsed ? item.label : undefined}
+            className={`sidebar-link d-flex align-items-center text-decoration-none rounded px-3 py-2 mb-1 ${
+              collapsed ? "justify-content-center" : "gap-2"
+            } ${active ? "bg-success text-white fw-semibold" : "text-white-50"}`}
           >
             <i className={`bi ${item.icon}`}></i>
-            {item.label}
+            {!collapsed && <span>{item.label}</span>}
           </Link>
         );
       })}
 
       <hr className="border-secondary" />
 
-      <Link to="/login" className="text-white-50 text-decoration-none d-flex align-items-center gap-2">
+      <Link
+        to="/login"
+        title={collapsed ? "Log Keluar" : undefined}
+        className={`text-white-50 text-decoration-none d-flex align-items-center rounded px-3 py-2 ${
+          collapsed ? "justify-content-center" : "gap-2"
+        }`}
+      >
         <i className="bi bi-box-arrow-right"></i>
-        Log Keluar
+        {!collapsed && <span>Log Keluar</span>}
       </Link>
     </aside>
   );

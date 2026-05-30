@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import pengakapLogo from "../../assets/pengakap-logo.png";
 
 export default function LandingPage() {
   return (
@@ -7,12 +8,15 @@ export default function LandingPage() {
       <nav className="navbar navbar-expand-lg bg-white border-bottom sticky-top">
         <div className="container">
           <Link to="/" className="navbar-brand d-flex align-items-center gap-2">
-            <div
-              className="bg-success text-white rounded-3 d-flex align-items-center justify-content-center"
-              style={{ width: 42, height: 42 }}
-            >
-              <i className="bi bi-shield-check fs-4"></i>
-            </div>
+            <img
+              src={pengakapLogo}
+              alt="Persekutuan Pengakap Malaysia"
+              style={{
+                width: 52,
+                height: 52,
+                objectFit: "contain",
+              }}
+            />
 
             <div>
               <div className="fw-bold">ePengakap Daerah</div>
