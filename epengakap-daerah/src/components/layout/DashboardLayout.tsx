@@ -16,7 +16,12 @@ export default function DashboardLayout({
   role?: RoleType;
 }) {
   return (
-    <div className="d-flex bg-light min-vh-100">
+    <div
+      className="d-flex min-vh-100"
+      style={{
+        background: "#f8fafc",
+      }}
+    >
       <Sidebar role={role} />
 
       <div className="flex-grow-1">

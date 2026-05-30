@@ -41,7 +41,7 @@ export default function Topbar({ role = "district" }: { role?: RoleType }) {
       <div>
         <input
           className="form-control"
-          placeholder="Cari ahli, kumpulan, sekolah..."
+          placeholder="Cari ahli, kumpulan, sekolah atau pengguna..."
           style={{ width: "320px" }}
         />
       </div>

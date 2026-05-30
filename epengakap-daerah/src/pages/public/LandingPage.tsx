@@ -312,7 +312,7 @@ export default function LandingPage() {
           </div>
 
           <div className="small text-white-50">
-            © 2026 Persekutuan Pengakap Malaysia. All rights reserved.
+            © 2026 ePengakap Daerah Developed by Bintara Solutions Sdn Bhd
           </div>
         </div>
       </footer>

@@ -1,2 +1,25 @@
-# e-Pengakap-Daerah
-ePengakap Daerah ialah satu sistem pengurusan berasaskan web yang dibangunkan untuk membantu pengurusan Pengakap di peringkat daerah. Sistem ini membolehkan Pesuruhjaya Daerah mengurus data ahli, pemimpin, penolong pemimpin, kumpulan/sekolah dan maklumat asas daerah secara lebih tersusun, selamat dan berpusat. 
+# ePengakap Daerah
+
+A district-level scout management system developed using React TypeScript and Bootstrap.
+
+## Features
+
+- Role-Based Access Control
+- Super Admin Module
+- District Management
+- Assistant Commissioner Module
+- Group Leader Module
+- Assistant Leader Module
+- Audit Logging
+- Registration & Approval Workflow
+
+## Technology
+
+- React
+- TypeScript
+- Bootstrap 5
+- React Router DOM
+
+## Status
+
+Frontend Prototype (MVP)
