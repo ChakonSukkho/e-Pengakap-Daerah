@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Modal } from "bootstrap";
 import { supabase } from "../../services/supabaseClient";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import FileUploadCard from "../../components/common/FileUploadCard";
@@ -14,9 +15,18 @@ type Member = {
   status: string;
 };
 
+type ScoutGroup = {
+  id: string;
+  group_name: string;
+  school_name: string;
+};
+
+
+
 export default function MemberManagementPage() {
   const [members, setMembers] = useState<Member[]>([]);
-
+  const [groups, setGroups] = useState<ScoutGroup[]>([]);
+  
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("Semua Kumpulan");
   const [categoryFilter, setCategoryFilter] = useState("Semua Kategori");
@@ -37,6 +47,7 @@ export default function MemberManagementPage() {
 
   useEffect(() => {
     fetchMembers();
+    fetchGroups();
   }, []);
   
   async function fetchMembers() {
@@ -64,8 +75,25 @@ export default function MemberManagementPage() {
     setMembers(formatted);
   }
 
+  async function fetchGroups() {
+    const { data, error } = await supabase
+      .from("groups")
+      .select("id, group_name, school_name")
+      .order("school_name", { ascending: true });
+    
+    if (error) {
+      alert(error.message);
+      return;
+    }
+  
+    setGroups(data || []);
+  }
+
   const filteredMembers = members.filter((member) => {
-    const matchSearch = member.name.toLowerCase().includes(search.toLowerCase());
+    const matchSearch =
+      member.name.toLowerCase().includes(search.toLowerCase()) ||
+      member.email.toLowerCase().includes(search.toLowerCase()) ||
+      member.group.toLowerCase().includes(search.toLowerCase());
     const matchGroup =
       groupFilter === "Semua Kumpulan" || member.group === groupFilter;
     const matchCategory =
@@ -96,6 +124,8 @@ async function saveMember() {
     alert("Sila isi nama, email dan umur ahli.");
     return;
   }
+
+  const action = editingMember ? "Update" : "Create";
 
   if (editingMember) {
     const { error } = await supabase
@@ -132,18 +162,30 @@ async function saveMember() {
     }
   }
 
+  await supabase.from("audit_logs").insert({
+    actor_name: "Encik Kamarul",
+    actor_role: "Pesuruhjaya Daerah",
+    action,
+    module: "Ahli Pengakap",
+    description:
+      action === "Update"
+        ? `Kemaskini ahli ${form.name}`
+        : `Tambah ahli ${form.name}`,
+  });
+
   await fetchMembers();
   resetForm();
 
-  const modalElement = document.getElementById("addMemberModal");
-
-    if (modalElement) {
-      const modal =
-        (window as any).bootstrap.Modal.getInstance(modalElement);
+    const activeElement = document.activeElement as HTMLElement | null;
+    activeElement?.blur();
     
-      modal?.hide();
+    const modalElement = document.getElementById("addMemberModal");
+    
+    if (modalElement) {
+      const modal = Modal.getOrCreateInstance(modalElement);
+      modal.hide();
     }
-  } 
+}
 
     function openEditModal(member: Member) {
       setEditingMember(member);
@@ -157,29 +199,39 @@ async function saveMember() {
         status: member.status,
       }); 
 
-      const modalElement = document.getElementById("addMemberModal");
-      const bootstrap = (window as any).bootstrap;
-      if (modalElement && bootstrap) {
-        new bootstrap.Modal(modalElement).show();
+      const modalElement = document.getElementById("addMemberModal");   
+      if (modalElement) {
+        const modal = Modal.getOrCreateInstance(modalElement);
+        modal.show();
       }
     } 
 
-    async function deleteMember(id: string) {
-    const confirmDelete = confirm("Adakah anda pasti mahu padam ahli ini?");
-    if (!confirmDelete) return; 
+async function deleteMember(id: string) {
+  const confirmDelete = confirm("Adakah anda pasti mahu padam ahli ini?");
+  if (!confirmDelete) return;
 
-    const { error } = await supabase
-      .from("members")
-      .delete()
-      .eq("id", id);  
+  const member = members.find((m) => m.id === id);
 
-    if (error) {
-      alert(error.message);
-      return;
-    } 
+  const { error } = await supabase
+    .from("members")
+    .delete()
+    .eq("id", id);
 
-    await fetchMembers();
+  if (error) {
+    alert(error.message);
+    return;
   }
+
+  await supabase.from("audit_logs").insert({
+    actor_name: "Encik Kamarul",
+    actor_role: "Pesuruhjaya Daerah",
+    action: "Delete",
+    module: "Ahli Pengakap",
+    description: `Padam ahli ${member?.name || ""}`,
+  });
+
+  await fetchMembers();
+}
 
   return (
     <DashboardLayout role="district">
@@ -231,9 +283,13 @@ async function saveMember() {
                 value={groupFilter}
                 onChange={(e) => setGroupFilter(e.target.value)}
               >
+
                 <option>Semua Kumpulan</option>
-                <option>SK Kementah</option>
-                <option>SMK Seksyen 7</option>
+                {groups.map((group) => (
+                  <option key={group.id} value={group.school_name}>
+                    {group.school_name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -440,8 +496,13 @@ async function saveMember() {
                       setForm({ ...form, group: e.target.value })
                     }
                   >
-                    <option>SK Kementah</option>
-                    <option>SMK Seksyen 7</option>
+                    <option value="">Pilih Kumpulan / Sekolah</option>
+                  
+                    {groups.map((group) => (
+                      <option key={group.id} value={group.school_name}>
+                        {group.school_name} — {group.group_name}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

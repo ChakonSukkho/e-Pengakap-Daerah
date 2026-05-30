@@ -1,7 +1,73 @@
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
+import { supabase } from "../../services/supabaseClient";
+
+type DistrictApplication = {
+  id: string;
+  applicant_name: string;
+  email: string;
+  phone: string;
+  state: string;
+  district: string;
+  organization: string;
+  status: string;
+  admin_note: string;
+};
 
 export default function ApplicationDetailPage() {
+  const { id } = useParams();
+  const [application, setApplication] = useState<DistrictApplication | null>(null);
+  const [adminNote, setAdminNote] = useState("");
+
+  useEffect(() => {
+    fetchApplication();
+  }, [id]);
+
+  async function fetchApplication() {
+    const { data, error } = await supabase
+      .from("district_applications")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setApplication(data);
+    setAdminNote(data.admin_note || "");
+  }
+
+  async function updateStatus(status: string) {
+    if (!application) return;
+
+    const { error } = await supabase
+      .from("district_applications")
+      .update({
+        status,
+        admin_note: adminNote,
+      })
+      .eq("id", application.id);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await fetchApplication();
+    alert(`Permohonan berjaya dikemaskini kepada ${status}.`);
+  }
+
+  if (!application) {
+    return (
+      <DashboardLayout role="superadmin">
+        <p className="text-muted">Loading application...</p>
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout role="superadmin">
       <div className="mb-4">
@@ -16,41 +82,47 @@ export default function ApplicationDetailPage() {
       <div className="row g-4 mt-2">
         <div className="col-lg-8">
           <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-white fw-semibold">Maklumat Pemohon</div>
+            <div className="card-header bg-white fw-semibold">
+              Maklumat Pemohon
+            </div>
+
             <div className="card-body">
               <div className="row mb-3">
                 <div className="col-md-4 text-muted">Nama</div>
-                <div className="col-md-8 fw-semibold">Ali bin Abu</div>
+                <div className="col-md-8 fw-semibold">{application.applicant_name}</div>
               </div>
+
               <div className="row mb-3">
                 <div className="col-md-4 text-muted">E-mel</div>
-                <div className="col-md-8">ali@example.com</div>
+                <div className="col-md-8">{application.email}</div>
               </div>
+
               <div className="row mb-3">
                 <div className="col-md-4 text-muted">Telefon</div>
-                <div className="col-md-8">012-3456789</div>
+                <div className="col-md-8">{application.phone || "-"}</div>
               </div>
+
               <div className="row">
-                <div className="col-md-4 text-muted">Jawatan</div>
-                <div className="col-md-8">Pesuruhjaya Daerah</div>
+                <div className="col-md-4 text-muted">Organisasi</div>
+                <div className="col-md-8">{application.organization || "-"}</div>
               </div>
             </div>
           </div>
 
           <div className="card border-0 shadow-sm">
-            <div className="card-header bg-white fw-semibold">Maklumat Daerah</div>
+            <div className="card-header bg-white fw-semibold">
+              Maklumat Daerah
+            </div>
+
             <div className="card-body">
               <div className="row mb-3">
                 <div className="col-md-4 text-muted">Negeri</div>
-                <div className="col-md-8 fw-semibold">Selangor</div>
+                <div className="col-md-8 fw-semibold">{application.state}</div>
               </div>
-              <div className="row mb-3">
-                <div className="col-md-4 text-muted">Daerah</div>
-                <div className="col-md-8 fw-semibold">Petaling</div>
-              </div>
+
               <div className="row">
-                <div className="col-md-4 text-muted">Organisasi</div>
-                <div className="col-md-8">Majlis Pengakap Daerah Petaling</div>
+                <div className="col-md-4 text-muted">Daerah</div>
+                <div className="col-md-8 fw-semibold">{application.district}</div>
               </div>
             </div>
           </div>
@@ -58,39 +130,70 @@ export default function ApplicationDetailPage() {
 
         <div className="col-lg-4">
           <div className="card border-0 shadow-sm mb-4">
-            <div className="card-header bg-white fw-semibold">Status Semasa</div>
+            <div className="card-header bg-white fw-semibold">
+              Status Semasa
+            </div>
+
             <div className="card-body">
-              <span className="badge bg-warning text-dark mb-3">Pending Approval</span>
+              <span
+                className={`badge mb-3 ${
+                  application.status === "Approved"
+                    ? "bg-success"
+                    : application.status === "Rejected"
+                    ? "bg-danger"
+                    : application.status === "More Info"
+                    ? "bg-info text-dark"
+                    : "bg-warning text-dark"
+                }`}
+              >
+                {application.status}
+              </span>
 
-              <p className="text-muted small">
-                Permohonan ini masih menunggu semakan daripada Super Admin.
+              <p className="text-muted small mb-0">
+                Status permohonan terkini berdasarkan semakan Super Admin.
               </p>
-
-              <button className="btn btn-outline-success w-100 mb-2">
-                View / Download Dokumen
-              </button>
             </div>
           </div>
 
           <div className="card border-0 shadow-sm">
-            <div className="card-header bg-white fw-semibold">Tindakan Admin</div>
+            <div className="card-header bg-white fw-semibold">
+              Tindakan Admin
+            </div>
+
             <div className="card-body">
               <label className="form-label">Catatan Admin</label>
               <textarea
                 className="form-control mb-3"
                 rows={4}
+                value={adminNote}
+                onChange={(e) => setAdminNote(e.target.value)}
                 placeholder="Masukkan catatan admin..."
-              ></textarea>
+              />
 
-              <button className="btn btn-success w-100 mb-2">Approve</button>
-              <button className="btn btn-danger w-100 mb-2">Reject</button>
-              <button className="btn btn-warning w-100">
+              <button
+                className="btn btn-success w-100 mb-2"
+                onClick={() => updateStatus("Approved")}
+              >
+                Approve
+              </button>
+
+              <button
+                className="btn btn-danger w-100 mb-2"
+                onClick={() => updateStatus("Rejected")}
+              >
+                Reject
+              </button>
+
+              <button
+                className="btn btn-warning w-100"
+                onClick={() => updateStatus("More Info")}
+              >
                 Request More Information
               </button>
             </div>
           </div>
         </div>
       </div>
-    </DashboardLayout >
+    </DashboardLayout>
   );
 }
