@@ -158,13 +158,13 @@ export default function Sidebar({
 
       <Link
         to="/login"
-        title={collapsed ? "Log Keluar" : undefined}
-        className={`text-white-50 text-decoration-none d-flex align-items-center rounded px-3 py-2 ${
-          collapsed ? "justify-content-center" : "gap-2"
-        }`}
+        onClick={() => {
+          localStorage.removeItem("user");
+        }}
+        className="text-white-50 text-decoration-none d-flex align-items-center gap-2"
       >
         <i className="bi bi-box-arrow-right"></i>
-        {!collapsed && <span>Log Keluar</span>}
+        {!collapsed && "Log Keluar"}
       </Link>
     </aside>
   );

@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 type RoleType =
   | "superadmin"
   | "district"
@@ -5,42 +7,49 @@ type RoleType =
   | "groupLeader"
   | "assistantLeader";
 
-const profileMap: Record<RoleType, { name: string; roleName: string; initials: string }> = {
-  superadmin: {
-    name: "Ahmad Razali",
-    roleName: "Super Admin",
-    initials: "SA",
-  },
-  district: {
-    name: "Encik Kamarul",
-    roleName: "Pesuruhjaya Daerah",
-    initials: "PD",
-  },
-  assistantCommissioner: {
-    name: "Pn. Siti Aminah",
-    roleName: "Penolong Pesuruhjaya",
-    initials: "PP",
-  },
-  groupLeader: {
-    name: "En. Farid Hassan",
-    roleName: "Pemimpin Kumpulan",
-    initials: "PK",
-  },
-  assistantLeader: {
-    name: "Cik Nur Aisyah",
-    roleName: "Penolong Pemimpin",
-    initials: "PT",
-  },
+const fallbackProfile: Record<
+  RoleType,
+  { name: string; roleName: string; initials: string }
+> = {
+  superadmin: { name: "Ahmad Razali", roleName: "Super Admin", initials: "SA" },
+  district: { name: "Encik Kamarul", roleName: "Pesuruhjaya Daerah", initials: "PD" },
+  assistantCommissioner: { name: "Pn. Siti Aminah", roleName: "Penolong Pesuruhjaya", initials: "PP" },
+  groupLeader: { name: "En. Farid Hassan", roleName: "Pemimpin Kumpulan", initials: "PK" },
+  assistantLeader: { name: "Cik Nur Aisyah", roleName: "Penolong Pemimpin", initials: "PT" },
 };
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+}
 
 export default function Topbar({
   role = "district",
-  onToggleSidebar,
 }: {
   role?: RoleType;
   onToggleSidebar?: () => void;
 }) {
-  const profile = profileMap[role];
+  const [profile, setProfile] = useState(fallbackProfile[role]);
+
+  useEffect(() => {
+    const savedUser = JSON.parse(localStorage.getItem("user") || "null");
+
+    if (savedUser) {
+      const name =
+        savedUser.full_name || savedUser.name || fallbackProfile[role].name;
+
+      setProfile({
+        name,
+        roleName: savedUser.role || fallbackProfile[role].roleName,
+        initials: getInitials(name),
+      });
+    }
+  }, [role]);
 
   return (
     <header className="bg-white border-bottom px-4 py-3 d-flex justify-content-between align-items-center sticky-top">

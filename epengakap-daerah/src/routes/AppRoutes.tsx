@@ -34,6 +34,9 @@ import AssistantMembersPage from "../pages/assistantLeader/AssistantMembersPage"
 import AssistantActivitiesPage from "../pages/assistantLeader/AssistantActivitiesPage";
 import AssistantProfilePage from "../pages/assistantLeader/AssistantProfilePage";
 
+import ProtectedRoute from "./ProtectedRoute";
+import UnauthorizedPage from "../pages/shared/UnauthorizedPage";
+
 export default function AppRoutes() {
   return (
     <Routes>
@@ -44,20 +47,112 @@ export default function AppRoutes() {
       <Route path="/pending-approval" element={<PendingApprovalPage />} />
 
       {/* Super Admin */}
-      <Route path="/superadmin" element={<SuperAdminDashboard />} />
-      <Route path="/superadmin/applications" element={<DistrictApplicationsPage />} />
-      <Route path="/superadmin/applications/:id" element={<ApplicationDetailPage />} />
-      <Route path="/superadmin/districts" element={<DistrictManagementPage />} />
-      <Route path="/superadmin/users" element={<SystemUsersPage />} />
-      <Route path="/superadmin/audit" element={<SystemAuditLogPage />} />
+      <Route
+        path="/superadmin"
+        element={
+          <ProtectedRoute allowedRoles={["Super Admin"]}>
+            <SuperAdminDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/superadmin/applications"
+        element={
+          <ProtectedRoute allowedRoles={["Super Admin"]}>
+            <DistrictApplicationsPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/superadmin/applications/:id"
+        element={
+          <ProtectedRoute allowedRoles={["Super Admin"]}>
+            <ApplicationDetailPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/superadmin/districts"
+        element={
+          <ProtectedRoute allowedRoles={["Super Admin"]}>
+            <DistrictManagementPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/superadmin/users"
+        element={
+          <ProtectedRoute allowedRoles={["Super Admin"]}>
+            <SystemUsersPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/superadmin/audit"
+        element={
+          <ProtectedRoute allowedRoles={["Super Admin"]}>
+            <SystemAuditLogPage />
+          </ProtectedRoute>
+        }
+      />
 
       {/* District Commissioner */}
-      <Route path="/district/dashboard" element={<DistrictDashboard />} />
-      <Route path="/district/users" element={<UserManagementPage />} />
-      <Route path="/district/groups" element={<GroupManagementPage />} />
-      <Route path="/district/members" element={<MemberManagementPage />} />
-      <Route path="/district/settings" element={<DistrictSettingsPage />} />
-      <Route path="/district/audit" element={<AuditLogPage />} />
+      <Route
+        path="/district/dashboard"
+        element={
+          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
+            <DistrictDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/district/users"
+        element={
+          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
+            <UserManagementPage />
+          </ProtectedRoute>
+        }
+      />
+      
+      <Route
+        path="/district/groups"
+        element={
+          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
+            <GroupManagementPage />
+          </ProtectedRoute>
+        }
+      />
+      
+      <Route
+        path="/district/members"
+        element={
+          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
+            <MemberManagementPage />
+          </ProtectedRoute>
+        }
+      />
+      
+      <Route
+        path="/district/settings"
+        element={
+          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
+            <DistrictSettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      
+      <Route
+        path="/district/audit"
+        element={
+          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
+            <AuditLogPage />
+          </ProtectedRoute>
+        }
+      />
 
       {/* Assistant Commissioner */}
       <Route path="/assistant-commissioner/dashboard" element={<AssistantCommissionerDashboard />} />
@@ -76,6 +171,8 @@ export default function AppRoutes() {
       <Route path="/assistant-leader/members" element={<AssistantMembersPage />} />
       <Route path="/assistant-leader/activities" element={<AssistantActivitiesPage />} />
       <Route path="/assistant-leader/profile" element={<AssistantProfilePage />} />
+
+      <Route path="/unauthorized" element={<UnauthorizedPage />} />
     </Routes>
   );
 }
