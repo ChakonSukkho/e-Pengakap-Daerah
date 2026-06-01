@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Modal } from "bootstrap";
 import { supabase } from "../../services/supabaseClient";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import FileUploadCard from "../../components/common/FileUploadCard";
@@ -21,24 +20,51 @@ type ScoutGroup = {
   school_name: string;
 };
 
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+}
 
+async function addAuditLog(action: string, description: string) {
+  const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
+
+  await supabase.from("audit_logs").insert({
+    actor_name: currentUser.full_name || "Unknown User",
+    actor_role: currentUser.role || "Unknown Role",
+    action,
+    module: "Ahli Pengakap",
+    description,
+  });
+}
 
 export default function MemberManagementPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [groups, setGroups] = useState<ScoutGroup[]>([]);
-  
+
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Member | null>(null);
+
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [showMemberModal, setShowMemberModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("Semua Kumpulan");
   const [categoryFilter, setCategoryFilter] = useState("Semua Kategori");
   const [statusFilter, setStatusFilter] = useState("Semua Status");
   const [genderFilter, setGenderFilter] = useState("Semua Jantina");
 
-  const [editingMember, setEditingMember] = useState<Member | null>(null);
-
   const [form, setForm] = useState({
     name: "",
     email: "",
-    group: "SK Kementah",
+    group: "",
     category: "Pengakap Kanak-Kanak",
     age: "",
     gender: "Lelaki",
@@ -49,19 +75,19 @@ export default function MemberManagementPage() {
     fetchMembers();
     fetchGroups();
   }, []);
-  
+
   async function fetchMembers() {
     const { data, error } = await supabase
       .from("members")
       .select("*")
       .order("created_at", { ascending: false });
-  
+
     if (error) {
       alert(error.message);
       return;
     }
-  
-    const formatted = data.map((item) => ({
+
+    const formatted = (data || []).map((item) => ({
       id: item.id,
       name: item.full_name,
       email: item.email,
@@ -71,7 +97,7 @@ export default function MemberManagementPage() {
       gender: item.gender,
       status: item.status,
     }));
-  
+
     setMembers(formatted);
   }
 
@@ -80,12 +106,12 @@ export default function MemberManagementPage() {
       .from("groups")
       .select("id, group_name, school_name")
       .order("school_name", { ascending: true });
-    
+
     if (error) {
       alert(error.message);
       return;
     }
-  
+
     setGroups(data || []);
   }
 
@@ -94,12 +120,16 @@ export default function MemberManagementPage() {
       member.name.toLowerCase().includes(search.toLowerCase()) ||
       member.email.toLowerCase().includes(search.toLowerCase()) ||
       member.group.toLowerCase().includes(search.toLowerCase());
+
     const matchGroup =
       groupFilter === "Semua Kumpulan" || member.group === groupFilter;
+
     const matchCategory =
       categoryFilter === "Semua Kategori" || member.category === categoryFilter;
+
     const matchStatus =
       statusFilter === "Semua Status" || member.status === statusFilter;
+
     const matchGender =
       genderFilter === "Semua Jantina" || member.gender === genderFilter;
 
@@ -111,7 +141,7 @@ export default function MemberManagementPage() {
     setForm({
       name: "",
       email: "",
-      group: "SK Kementah",
+      group: groups[0]?.school_name || "",
       category: "Pengakap Kanak-Kanak",
       age: "",
       gender: "Lelaki",
@@ -119,34 +149,42 @@ export default function MemberManagementPage() {
     });
   }
 
-async function saveMember() {
-  if (!form.name.trim() || !form.email.trim() || !form.age) {
-    alert("Sila isi nama, email dan umur ahli.");
-    return;
+  function openAddModal() {
+    resetForm();
+    setShowMemberModal(true);
   }
 
-  const action = editingMember ? "Update" : "Create";
+  function openViewModal(member: Member) {
+    setSelectedMember(member);
+    setShowViewModal(true);
+  }
 
-  if (editingMember) {
-    const { error } = await supabase
-      .from("members")
-      .update({
-        full_name: form.name,
-        email: form.email,
-        group_name: form.group,
-        category: form.category,
-        age: Number(form.age),
-        gender: form.gender,
-        status: form.status,
-      })
-      .eq("id", editingMember.id);
+  function openEditModal(member: Member) {
+    setEditingMember(member);
+    setForm({
+      name: member.name,
+      email: member.email,
+      group: member.group,
+      category: member.category,
+      age: String(member.age),
+      gender: member.gender,
+      status: member.status,
+    });
+    setShowMemberModal(true);
+  }
 
-    if (error) {
-      alert(error.message);
+  function openDeleteModal(member: Member) {
+    setDeleteTarget(member);
+    setShowDeleteModal(true);
+  }
+
+  async function saveMember() {
+    if (!form.name.trim() || !form.email.trim() || !form.age || !form.group) {
+      alert("Sila isi nama, email, umur dan kumpulan ahli.");
       return;
     }
-  } else {
-    const { error } = await supabase.from("members").insert({
+
+    const payload = {
       full_name: form.name,
       email: form.email,
       group_name: form.group,
@@ -154,84 +192,55 @@ async function saveMember() {
       age: Number(form.age),
       gender: form.gender,
       status: form.status,
-    });
+    };
+
+    if (editingMember) {
+      const { error } = await supabase
+        .from("members")
+        .update(payload)
+        .eq("id", editingMember.id);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      await addAuditLog("UPDATE", `Kemaskini ahli ${form.name}`);
+    } else {
+      const { error } = await supabase.from("members").insert(payload);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      await addAuditLog("CREATE", `Tambah ahli ${form.name}`);
+    }
+
+    await fetchMembers();
+    resetForm();
+    setShowMemberModal(false);
+  }
+
+  async function deleteMember() {
+    if (!deleteTarget) return;
+
+    const { error } = await supabase
+      .from("members")
+      .delete()
+      .eq("id", deleteTarget.id);
 
     if (error) {
       alert(error.message);
       return;
     }
+
+    await addAuditLog("DELETE", `Padam ahli ${deleteTarget.name}`);
+
+    await fetchMembers();
+    setShowDeleteModal(false);
+    setDeleteTarget(null);
   }
-
-  await supabase.from("audit_logs").insert({
-    actor_name: "Encik Kamarul",
-    actor_role: "Pesuruhjaya Daerah",
-    action,
-    module: "Ahli Pengakap",
-    description:
-      action === "Update"
-        ? `Kemaskini ahli ${form.name}`
-        : `Tambah ahli ${form.name}`,
-  });
-
-  await fetchMembers();
-  resetForm();
-
-    const activeElement = document.activeElement as HTMLElement | null;
-    activeElement?.blur();
-    
-    const modalElement = document.getElementById("addMemberModal");
-    
-    if (modalElement) {
-      const modal = Modal.getOrCreateInstance(modalElement);
-      modal.hide();
-    }
-}
-
-    function openEditModal(member: Member) {
-      setEditingMember(member);
-      setForm({
-        name: member.name,
-        email: member.email,
-        group: member.group,
-        category: member.category,
-        age: String(member.age),
-        gender: member.gender,
-        status: member.status,
-      }); 
-
-      const modalElement = document.getElementById("addMemberModal");   
-      if (modalElement) {
-        const modal = Modal.getOrCreateInstance(modalElement);
-        modal.show();
-      }
-    } 
-
-async function deleteMember(id: string) {
-  const confirmDelete = confirm("Adakah anda pasti mahu padam ahli ini?");
-  if (!confirmDelete) return;
-
-  const member = members.find((m) => m.id === id);
-
-  const { error } = await supabase
-    .from("members")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    alert(error.message);
-    return;
-  }
-
-  await supabase.from("audit_logs").insert({
-    actor_name: "Encik Kamarul",
-    actor_role: "Pesuruhjaya Daerah",
-    action: "Delete",
-    module: "Ahli Pengakap",
-    description: `Padam ahli ${member?.name || ""}`,
-  });
-
-  await fetchMembers();
-}
 
   return (
     <DashboardLayout role="district">
@@ -245,20 +254,15 @@ async function deleteMember(id: string) {
 
         <div className="d-flex gap-2">
           <button
+            type="button"
             className="btn btn-outline-success"
-            data-bs-toggle="modal"
-            data-bs-target="#uploadMemberModal"
+            onClick={() => setShowUploadModal(true)}
           >
             <i className="bi bi-upload me-1"></i>
             Import Fail
           </button>
 
-          <button
-            className="btn btn-success"
-            data-bs-toggle="modal"
-            data-bs-target="#addMemberModal"
-            onClick={resetForm}
-          >
+          <button type="button" className="btn btn-success" onClick={openAddModal}>
             <i className="bi bi-plus-circle me-1"></i>
             Tambah Ahli
           </button>
@@ -283,7 +287,6 @@ async function deleteMember(id: string) {
                 value={groupFilter}
                 onChange={(e) => setGroupFilter(e.target.value)}
               >
-
                 <option>Semua Kumpulan</option>
                 {groups.map((group) => (
                   <option key={group.id} value={group.school_name}>
@@ -303,6 +306,7 @@ async function deleteMember(id: string) {
                 <option>Pengakap Kanak-Kanak</option>
                 <option>Pengakap Muda</option>
                 <option>Pengakap Remaja</option>
+                <option>Pengakap Kelana</option>
               </select>
             </div>
 
@@ -379,13 +383,15 @@ async function deleteMember(id: string) {
                     </td>
                     <td>
                       <button
+                        type="button"
                         className="btn btn-sm btn-outline-success me-1"
-                        onClick={() => alert(JSON.stringify(member, null, 2))}
+                        onClick={() => openViewModal(member)}
                       >
                         View
                       </button>
 
                       <button
+                        type="button"
                         className="btn btn-sm btn-outline-secondary me-1"
                         onClick={() => openEditModal(member)}
                       >
@@ -393,8 +399,9 @@ async function deleteMember(id: string) {
                       </button>
 
                       <button
+                        type="button"
                         className="btn btn-sm btn-outline-danger"
-                        onClick={() => deleteMember(member.id)}
+                        onClick={() => openDeleteModal(member)}
                       >
                         Delete
                       </button>
@@ -407,152 +414,293 @@ async function deleteMember(id: string) {
         </div>
       </div>
 
-      <div className="modal fade" id="addMemberModal" tabIndex={-1}>
-        <div className="modal-dialog modal-lg modal-dialog-centered">
-          <div className="modal-content border-0">
-            <div className="modal-header">
-              <h5 className="modal-title fw-bold">
-                {editingMember ? "Edit Ahli Pengakap" : "Tambah Ahli Pengakap"}
-              </h5>
+      {showViewModal && selectedMember && (
+        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold">Maklumat Ahli</h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setShowViewModal(false)}
+                ></button>
+              </div>
 
-              <button className="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-
-            <div className="modal-body">
-              <div className="row g-3">
-                <div className="col-md-6">
-                  <label className="form-label">Nama Penuh</label>
-                  <input
-                    className="form-control"
-                    value={form.name}
-                    onChange={(e) =>
-                      setForm({ ...form, name: e.target.value })
-                    }
-                    placeholder="Ahmad bin Ali"
-                  />
-                </div>
-
-                <div className="col-md-6">
-                  <label className="form-label">E-mel Ahli / Penjaga</label>
-                  <input
-                    type="email"
-                    className="form-control"
-                    value={form.email}
-                    onChange={(e) =>
-                      setForm({ ...form, email: e.target.value })
-                    }
-                    placeholder="contoh@email.com"
-                  />
-                </div>
-
-                <div className="col-md-6">
-                  <label className="form-label">Umur</label>
-                  <input
-                    type="number"
-                    className="form-control"
-                    value={form.age}
-                    onChange={(e) =>
-                      setForm({ ...form, age: e.target.value })
-                    }
-                    placeholder="11"
-                  />
-                </div>
-
-                <div className="col-md-6">
-                  <label className="form-label">Jantina</label>
-                  <select
-                    className="form-select"
-                    value={form.gender}
-                    onChange={(e) =>
-                      setForm({ ...form, gender: e.target.value })
-                    }
+              <div className="modal-body">
+                <div className="text-center mb-4">
+                  <div
+                    className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold mx-auto mb-2"
+                    style={{ width: 64, height: 64, fontSize: 22 }}
                   >
-                    <option>Lelaki</option>
-                    <option>Perempuan</option>
-                  </select>
+                    {getInitials(selectedMember.name)}
+                  </div>
+
+                  <h5 className="fw-bold mb-0">{selectedMember.name}</h5>
+                  <small className="text-muted">{selectedMember.email}</small>
                 </div>
 
-                <div className="col-md-6">
-                  <label className="form-label">Kategori</label>
-                  <select
-                    className="form-select"
-                    value={form.category}
-                    onChange={(e) =>
-                      setForm({ ...form, category: e.target.value })
-                    }
-                  >
-                    <option>Pengakap Kanak-Kanak</option>
-                    <option>Pengakap Muda</option>
-                    <option>Pengakap Remaja</option>
-                  </select>
-                </div>
+                <div className="list-group list-group-flush">
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Kumpulan</span>
+                    <strong>{selectedMember.group}</strong>
+                  </div>
 
-                <div className="col-md-6">
-                  <label className="form-label">Kumpulan / Sekolah</label>
-                  <select
-                    className="form-select"
-                    value={form.group}
-                    onChange={(e) =>
-                      setForm({ ...form, group: e.target.value })
-                    }
-                  >
-                    <option value="">Pilih Kumpulan / Sekolah</option>
-                  
-                    {groups.map((group) => (
-                      <option key={group.id} value={group.school_name}>
-                        {group.school_name} — {group.group_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Kategori</span>
+                    <strong>{selectedMember.category}</strong>
+                  </div>
 
-                <div className="col-md-6">
-                  <label className="form-label">Status</label>
-                  <select
-                    className="form-select"
-                    value={form.status}
-                    onChange={(e) =>
-                      setForm({ ...form, status: e.target.value })
-                    }
-                  >
-                    <option>Aktif</option>
-                    <option>Tidak Aktif</option>
-                  </select>
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Umur</span>
+                    <strong>{selectedMember.age}</strong>
+                  </div>
+
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Jantina</span>
+                    <strong>{selectedMember.gender}</strong>
+                  </div>
+
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Status</span>
+                    <span
+                      className={`badge ${
+                        selectedMember.status === "Aktif"
+                          ? "bg-success"
+                          : "bg-secondary"
+                      }`}
+                    >
+                      {selectedMember.status}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="modal-footer">
-              <button
-                className="btn btn-outline-secondary"
-                data-bs-dismiss="modal"
-              >
-                Tutup
-              </button>
-
-              <button className="btn btn-success" onClick={saveMember}>
-                {editingMember ? "Kemaskini Ahli" : "Simpan Ahli"}
-              </button>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={() => setShowViewModal(false)}
+                >
+                  Tutup
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="modal fade" id="uploadMemberModal" tabIndex={-1}>
-        <div className="modal-dialog modal-xl modal-dialog-centered">
-          <div className="modal-content border-0">
-            <div className="modal-header">
-              <h5 className="modal-title fw-bold">Import Ahli Pengakap</h5>
+      {showMemberModal && (
+        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
+          <div className="modal-dialog modal-lg modal-dialog-centered">
+            <div className="modal-content border-0">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold">
+                  {editingMember ? "Edit Ahli Pengakap" : "Tambah Ahli Pengakap"}
+                </h5>
 
-              <button className="btn-close" data-bs-dismiss="modal"></button>
-            </div>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => {
+                    setShowMemberModal(false);
+                    resetForm();
+                  }}
+                ></button>
+              </div>
 
-            <div className="modal-body">
-              <FileUploadCard />
+              <div className="modal-body">
+                <div className="row g-3">
+                  <div className="col-md-6">
+                    <label className="form-label">Nama Penuh</label>
+                    <input
+                      className="form-control"
+                      value={form.name}
+                      onChange={(e) =>
+                        setForm({ ...form, name: e.target.value })
+                      }
+                      placeholder="Ahmad bin Ali"
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">E-mel Ahli / Penjaga</label>
+                    <input
+                      type="email"
+                      className="form-control"
+                      value={form.email}
+                      onChange={(e) =>
+                        setForm({ ...form, email: e.target.value })
+                      }
+                      placeholder="contoh@email.com"
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Umur</label>
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={form.age}
+                      onChange={(e) =>
+                        setForm({ ...form, age: e.target.value })
+                      }
+                      placeholder="11"
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Jantina</label>
+                    <select
+                      className="form-select"
+                      value={form.gender}
+                      onChange={(e) =>
+                        setForm({ ...form, gender: e.target.value })
+                      }
+                    >
+                      <option>Lelaki</option>
+                      <option>Perempuan</option>
+                    </select>
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Kategori</label>
+                    <select
+                      className="form-select"
+                      value={form.category}
+                      onChange={(e) =>
+                        setForm({ ...form, category: e.target.value })
+                      }
+                    >
+                      <option>Pengakap Kanak-Kanak</option>
+                      <option>Pengakap Muda</option>
+                      <option>Pengakap Remaja</option>
+                      <option>Pengakap Kelana</option>
+                    </select>
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Kumpulan / Sekolah</label>
+                    <select
+                      className="form-select"
+                      value={form.group}
+                      onChange={(e) =>
+                        setForm({ ...form, group: e.target.value })
+                      }
+                    >
+                      <option value="">Pilih Kumpulan / Sekolah</option>
+
+                      {groups.map((group) => (
+                        <option key={group.id} value={group.school_name}>
+                          {group.school_name} — {group.group_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Status</label>
+                    <select
+                      className="form-select"
+                      value={form.status}
+                      onChange={(e) =>
+                        setForm({ ...form, status: e.target.value })
+                      }
+                    >
+                      <option>Aktif</option>
+                      <option>Tidak Aktif</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={() => {
+                    setShowMemberModal(false);
+                    resetForm();
+                  }}
+                >
+                  Tutup
+                </button>
+
+                <button type="button" className="btn btn-success" onClick={saveMember}>
+                  {editingMember ? "Kemaskini Ahli" : "Simpan Ahli"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {showDeleteModal && deleteTarget && (
+        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold text-danger">Padam Ahli</h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteTarget(null);
+                  }}
+                ></button>
+              </div>
+
+              <div className="modal-body">
+                <p className="mb-1">Adakah anda pasti mahu padam ahli ini?</p>
+                <strong>{deleteTarget.name}</strong>
+                <p className="text-muted small mt-2 mb-0">
+                  Tindakan ini tidak boleh dibatalkan.
+                </p>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteTarget(null);
+                  }}
+                >
+                  Batal
+                </button>
+
+                <button type="button" className="btn btn-danger" onClick={deleteMember}>
+                  Padam
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showUploadModal && (
+        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
+          <div className="modal-dialog modal-xl modal-dialog-centered">
+            <div className="modal-content border-0">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold">Import Ahli Pengakap</h5>
+
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setShowUploadModal(false)}
+                ></button>
+              </div>
+
+              <div className="modal-body">
+                <FileUploadCard />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

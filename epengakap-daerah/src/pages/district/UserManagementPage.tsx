@@ -49,10 +49,19 @@ export default function UserManagementPage() {
   }, []);
 
   async function fetchUsers() {
-    const { data, error } = await supabase
+    const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
+
+    const query = supabase
       .from("system_users")
       .select("*")
+      .neq("role", "Super Admin")
       .order("created_at", { ascending: false });
+
+    if (currentUser?.district) {
+      query.eq("district", currentUser.district);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       alert(error.message);
@@ -63,11 +72,16 @@ export default function UserManagementPage() {
   }
 
   const filteredUsers = users.filter((user) => {
-    const matchSearch =
-      user.full_name.toLowerCase().includes(search.toLowerCase()) ||
-      user.email.toLowerCase().includes(search.toLowerCase());
+    const keyword = search.toLowerCase();
 
-    const matchRole = roleFilter === "Semua Role" || user.role === roleFilter;
+    const matchSearch =
+      (user.full_name || "").toLowerCase().includes(keyword) ||
+      (user.email || "").toLowerCase().includes(keyword) ||
+      (user.role || "").toLowerCase().includes(keyword);
+
+    const matchRole =
+      roleFilter === "Semua Role" || user.role === roleFilter;
+
     const matchStatus =
       statusFilter === "Semua Status" || user.status === statusFilter;
 
@@ -75,12 +89,14 @@ export default function UserManagementPage() {
   });
 
   function resetForm() {
+    const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
+
     setEditingUser(null);
     setForm({
       full_name: "",
       email: "",
       role: "Pemimpin Kumpulan",
-      district: "Petaling",
+      district: currentUser?.district || "Petaling",
       status: "Aktif",
     });
   }
@@ -96,7 +112,13 @@ export default function UserManagementPage() {
   }
 
   function openEditModal(user: SystemUser) {
+    if (user.role === "Super Admin") {
+      alert("Super Admin tidak boleh diurus oleh District.");
+      return;
+    }
+
     setEditingUser(user);
+
     setForm({
       full_name: user.full_name,
       email: user.email,
@@ -109,6 +131,11 @@ export default function UserManagementPage() {
   }
 
   function openDeleteModal(user: SystemUser) {
+    if (user.role === "Super Admin") {
+      alert("Super Admin tidak boleh dipadam oleh District.");
+      return;
+    }
+
     setDeleteTarget(user);
     setShowDeleteModal(true);
   }
@@ -119,11 +146,29 @@ export default function UserManagementPage() {
       return;
     }
 
+    if (form.role === "Super Admin") {
+      alert("District tidak dibenarkan mengurus Super Admin.");
+      return;
+    }
+
+    const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
+
+    const payload = {
+      ...form,
+      district: currentUser?.district || form.district || "Petaling",
+    };
+
     if (editingUser) {
+      if (editingUser.role === "Super Admin") {
+        alert("Super Admin tidak boleh diurus oleh District.");
+        return;
+      }
+
       const { error } = await supabase
         .from("system_users")
-        .update(form)
-        .eq("id", editingUser.id);
+        .update(payload)
+        .eq("id", editingUser.id)
+        .neq("role", "Super Admin");
 
       if (error) {
         alert(error.message);
@@ -136,7 +181,7 @@ export default function UserManagementPage() {
         `Kemaskini pengguna: ${form.full_name}`
       );
     } else {
-      const { error } = await supabase.from("system_users").insert(form);
+      const { error } = await supabase.from("system_users").insert(payload);
 
       if (error) {
         alert(error.message);
@@ -173,7 +218,8 @@ export default function UserManagementPage() {
     const { error } = await supabase
       .from("system_users")
       .delete()
-      .eq("id", deleteTarget.id);
+      .eq("id", deleteTarget.id)
+      .neq("role", "Super Admin");
 
     if (error) {
       alert(error.message);
@@ -229,7 +275,6 @@ export default function UserManagementPage() {
                 onChange={(e) => setRoleFilter(e.target.value)}
               >
                 <option>Semua Role</option>
-                <option>Super Admin</option>
                 <option>Pesuruhjaya Daerah</option>
                 <option>Penolong Pesuruhjaya</option>
                 <option>Pemimpin Kumpulan</option>
@@ -456,7 +501,6 @@ export default function UserManagementPage() {
                         setForm({ ...form, role: e.target.value })
                       }
                     >
-                      <option>Super Admin</option>
                       <option>Pesuruhjaya Daerah</option>
                       <option>Penolong Pesuruhjaya</option>
                       <option>Pemimpin Kumpulan</option>
@@ -469,10 +513,7 @@ export default function UserManagementPage() {
                     <input
                       className="form-control"
                       value={form.district}
-                      onChange={(e) =>
-                        setForm({ ...form, district: e.target.value })
-                      }
-                      placeholder="Petaling"
+                      readOnly
                     />
                   </div>
 
