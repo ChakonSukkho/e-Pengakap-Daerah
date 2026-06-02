@@ -22,6 +22,8 @@ import AuditLogPage from "../pages/district/AuditLogPage";
 import AssistantCommissionerDashboard from "../pages/assistantCommissioner/AssistantCommissionerDashboard";
 import ACMemberManagementPage from "../pages/assistantCommissioner/ACMemberManagementPage";
 import ACGroupManagementPage from "../pages/assistantCommissioner/ACGroupManagementPage";
+import AssistantCommissionerActivitiesPage from "../pages/assistantCommissioner/AssistantCommissionerActivitiesPage";
+import AssistantCommissionerProfilePage from "../pages/assistantCommissioner/AssistantCommissionerProfilePage";
 import ReportsPage from "../pages/assistantCommissioner/ReportsPage";
 
 import GroupLeaderDashboard from "../pages/groupLeader/GroupLeaderDashboard";
@@ -161,31 +163,52 @@ export default function AppRoutes() {
       <Route
         path="/assistant-commissioner/dashboard"
         element={
-          <ProtectedRoute allowedRoles={["Pemimpin Asisten Komisioner"]}>
+          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
             <AssistantCommissionerDashboard />
           </ProtectedRoute>
         }
       />
+
       <Route
         path="/assistant-commissioner/members"
         element={
-          <ProtectedRoute allowedRoles={["Pemimpin Asisten Komisioner"]}>
+          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
             <ACMemberManagementPage />
           </ProtectedRoute>
         }
       />
+
       <Route
         path="/assistant-commissioner/groups"
         element={
-          <ProtectedRoute allowedRoles={["Pemimpin Asisten Komisioner"]}>
+          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
             <ACGroupManagementPage />
           </ProtectedRoute>
         }
       />
+
+      <Route
+        path="/assistant-commissioner/activities"
+        element={
+          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
+            <AssistantCommissionerActivitiesPage />
+          </ProtectedRoute>
+        }
+      />
+      
+      <Route
+        path="/assistant-commissioner/profile"
+        element={
+          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
+            <AssistantCommissionerProfilePage />
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/assistant-commissioner/reports"
         element={
-          <ProtectedRoute allowedRoles={["Pemimpin Asisten Komisioner"]}>
+          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
             <ReportsPage />
           </ProtectedRoute>
         }

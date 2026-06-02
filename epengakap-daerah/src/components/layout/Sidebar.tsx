@@ -34,6 +34,8 @@ const menus: Record<RoleType, MenuItem[]> = {
     { to: "/assistant-commissioner/dashboard", label: "Papan Pemuka", icon: "bi-speedometer2" },
     { to: "/assistant-commissioner/groups", label: "Kumpulan / Sekolah", icon: "bi-mortarboard" },
     { to: "/assistant-commissioner/members", label: "Ahli Pengakap", icon: "bi-people" },
+    { to: "/assistant-commissioner/activities", label: "Activiti", icon: "bi-calendar-event" },
+    { to: "/assistant-commissioner/profile", label: "Profil Saya", icon: "bi-person-circle" },
     { to: "/assistant-commissioner/reports", label: "Laporan", icon: "bi-file-earmark-text" },
   ],
   groupLeader: [
