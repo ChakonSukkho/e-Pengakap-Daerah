@@ -248,36 +248,37 @@ export default function AppRoutes() {
         }
       />
       
-
-      {/* Assistant Leader */}
       <Route
         path="/assistant-leader/dashboard"
         element={
-          <ProtectedRoute allowedRoles={["Pemimpin Asisten"]}>
+          <ProtectedRoute allowedRoles={["Penolong Pemimpin"]}>
             <AssistantLeaderDashboard />
           </ProtectedRoute>
         }
       />
+      
       <Route
         path="/assistant-leader/members"
         element={
-          <ProtectedRoute allowedRoles={["Pemimpin Asisten"]}>
+          <ProtectedRoute allowedRoles={["Penolong Pemimpin"]}>
             <AssistantMembersPage />
           </ProtectedRoute>
         }
       />
+      
       <Route
         path="/assistant-leader/activities"
         element={
-          <ProtectedRoute allowedRoles={["Pemimpin Asisten"]}>
+          <ProtectedRoute allowedRoles={["Penolong Pemimpin"]}>
             <AssistantActivitiesPage />
           </ProtectedRoute>
         }
       />
+      
       <Route
         path="/assistant-leader/profile"
         element={
-          <ProtectedRoute allowedRoles={["Pemimpin Asisten"]}>
+          <ProtectedRoute allowedRoles={["Penolong Pemimpin"]}>
             <AssistantProfilePage />
           </ProtectedRoute>
         }
