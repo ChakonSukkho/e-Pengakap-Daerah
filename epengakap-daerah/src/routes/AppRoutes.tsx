@@ -28,6 +28,9 @@ import GroupLeaderDashboard from "../pages/groupLeader/GroupLeaderDashboard";
 import GroupMembersPage from "../pages/groupLeader/GroupMembersPage";
 import ActivitiesPage from "../pages/groupLeader/ActivitiesPage";
 import ProfilePage from "../pages/groupLeader/ProfilePage";
+import AttendancePage from "../pages/groupLeader/AttendancePage";
+import BadgesPage from "../pages/groupLeader/BadgesPage";
+
 
 import AssistantLeaderDashboard from "../pages/assistantLeader/AssistantLeaderDashboard";
 import AssistantMembersPage from "../pages/assistantLeader/AssistantMembersPage";
@@ -155,22 +158,130 @@ export default function AppRoutes() {
       />
 
       {/* Assistant Commissioner */}
-      <Route path="/assistant-commissioner/dashboard" element={<AssistantCommissionerDashboard />} />
-      <Route path="/assistant-commissioner/members" element={<ACMemberManagementPage />} />
-      <Route path="/assistant-commissioner/groups" element={<ACGroupManagementPage />} />
-      <Route path="/assistant-commissioner/reports" element={<ReportsPage />} />
+      <Route
+        path="/assistant-commissioner/dashboard"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Asisten Komisioner"]}>
+            <AssistantCommissionerDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assistant-commissioner/members"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Asisten Komisioner"]}>
+            <ACMemberManagementPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assistant-commissioner/groups"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Asisten Komisioner"]}>
+            <ACGroupManagementPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assistant-commissioner/reports"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Asisten Komisioner"]}>
+            <ReportsPage />
+          </ProtectedRoute>
+        }
+      />
 
       {/* Group Leader */}
-      <Route path="/group-leader/dashboard" element={<GroupLeaderDashboard />} />
-      <Route path="/group-leader/members" element={<GroupMembersPage />} />
-      <Route path="/group-leader/activities" element={<ActivitiesPage />} />
-      <Route path="/group-leader/profile" element={<ProfilePage />} />
+      <Route
+        path="/group-leader/dashboard"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
+            <GroupLeaderDashboard />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/group-leader/members"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
+            <GroupMembersPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/group-leader/activities"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
+            <ActivitiesPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/group-leader/profile"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
+            <ProfilePage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/group-leader/badges"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
+            <BadgesPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/group-leader/attendance"
+        element={
+          <ProtectedRoute
+            allowedRoles={["Pemimpin Kumpulan"]}
+          >
+            <AttendancePage />
+          </ProtectedRoute>
+        }
+      />
+      
 
       {/* Assistant Leader */}
-      <Route path="/assistant-leader/dashboard" element={<AssistantLeaderDashboard />} />
-      <Route path="/assistant-leader/members" element={<AssistantMembersPage />} />
-      <Route path="/assistant-leader/activities" element={<AssistantActivitiesPage />} />
-      <Route path="/assistant-leader/profile" element={<AssistantProfilePage />} />
+      <Route
+        path="/assistant-leader/dashboard"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Asisten"]}>
+            <AssistantLeaderDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assistant-leader/members"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Asisten"]}>
+            <AssistantMembersPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assistant-leader/activities"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Asisten"]}>
+            <AssistantActivitiesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assistant-leader/profile"
+        element={
+          <ProtectedRoute allowedRoles={["Pemimpin Asisten"]}>
+            <AssistantProfilePage />
+          </ProtectedRoute>
+        }
+      />
 
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
     </Routes>
