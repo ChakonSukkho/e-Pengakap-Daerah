@@ -276,7 +276,8 @@ export default function UserManagementPage() {
               >
                 <option>Semua Role</option>
                 <option>Pesuruhjaya Daerah</option>
-                <option>Penolong Pesuruhjaya</option>
+                <option>Penolong Pesuruhjaya Daerah</option>
+                <option>Ahli Majlis</option>
                 <option>Pemimpin Kumpulan</option>
                 <option>Penolong Pemimpin</option>
               </select>
@@ -502,7 +503,8 @@ export default function UserManagementPage() {
                       }
                     >
                       <option>Pesuruhjaya Daerah</option>
-                      <option>Penolong Pesuruhjaya</option>
+                      <option>Penolong Pesuruhjaya Daerah</option>
+                      <option>Ahli Majlis</option>
                       <option>Pemimpin Kumpulan</option>
                       <option>Penolong Pemimpin</option>
                     </select>

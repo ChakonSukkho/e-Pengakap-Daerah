@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../../services/supabaseClient";
-import pengakapLogo from "../../assets/pengakap-logo.png";
+import pengakapLogo from "../../assets/newLogoIcon.png";
 
 export default function LoginPage() {
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("pesuruhjaya@petaling.gov.my");
   const [password, setPassword] = useState("123456");
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleLogin() {
     if (!email.trim() || !password.trim()) {
@@ -171,13 +172,28 @@ if (!data) {
                       <span className="input-group-text bg-white">
                         <i className="bi bi-lock"></i>
                       </span>
+
                       <input
-                        type="password"
+                        type={showPassword ? "text" : "password"}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         className="form-control"
                         placeholder="Masukkan kata laluan"
                       />
+
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        <i
+                          className={`bi ${
+                            showPassword
+                              ? "bi-eye-slash"
+                              : "bi-eye"
+                          }`}
+                        ></i>
+                      </button>
                     </div>
                   </div>
 

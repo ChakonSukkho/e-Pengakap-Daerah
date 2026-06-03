@@ -1,26 +1,38 @@
 import { Link } from "react-router-dom";
-import pengakapLogo from "../../assets/pengakap-logo.png";
+import pengakapLogo from "../../assets/newLogo.png";
 
 export default function LandingPage() {
   return (
     <div className="bg-light min-vh-100">
       {/* Navbar */}
-      <nav className="navbar navbar-expand-lg bg-white border-bottom sticky-top">
+      <nav className="navbar navbar-expand-lg bg-white border-bottom sticky-top py-3">
         <div className="container">
-          <Link to="/" className="navbar-brand d-flex align-items-center gap-2">
-            <img
-              src={pengakapLogo}
-              alt="Persekutuan Pengakap Malaysia"
+          <Link to="/" className="navbar-brand d-flex align-items-center gap-3">
+            <div
+              className="d-flex align-items-center justify-content-center"
               style={{
-                width: 52,
-                height: 52,
-                objectFit: "contain",
+                width: 120,
+                height: 70,
               }}
-            />
-
+            >
+              <img
+                src={pengakapLogo}
+                alt="Persekutuan Pengakap Malaysia"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "contain",
+                }}
+              />
+            </div>
+              
             <div>
-              <div className="fw-bold">ePengakap Daerah</div>
-              <small className="text-muted">Sistem Pengurusan Pengakap</small>
+              <div className="fw-bold" style={{ fontSize: "1.35rem" }}>
+                ePengakap Daerah
+              </div>
+              <div className="text-muted" style={{ fontSize: "0.95rem" }}>
+                Sistem Pengurusan Pengakap Malaysia
+              </div>
             </div>
           </Link>
 

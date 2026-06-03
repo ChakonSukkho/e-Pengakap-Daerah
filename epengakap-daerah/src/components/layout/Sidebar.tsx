@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import pengakapLogo from "../../assets/pengakap-logo.png";
+import pengakapLogo from "../../assets/newLogoIcon.png";
 
 type RoleType =
   | "superadmin"
