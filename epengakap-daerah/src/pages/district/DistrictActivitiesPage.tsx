@@ -4,13 +4,21 @@ import { supabase } from "../../services/supabaseClient";
 
 type Activity = {
   id: string;
+  group_id: string | null;
+  group_name: string | null;
   activity_name: string;
   activity_date: string;
-  location: string;
+  location: string | null;
   description: string | null;
-  group_name: string;
   status: string;
   created_at?: string;
+};
+
+type ScoutGroup = {
+  id: string;
+  group_name: string;
+  school_name: string;
+  status: string;
 };
 
 type ActivityForm = {
@@ -18,54 +26,69 @@ type ActivityForm = {
   activity_date: string;
   location: string;
   description: string;
+  group_id: string;
+  group_name: string;
   status: string;
 };
 
+async function addAuditLog(action: string, description: string) {
+  const currentUser = JSON.parse(
+    localStorage.getItem("user") ||
+      localStorage.getItem("auth_user") ||
+      "{}"
+  );
+
+  await supabase.from("audit_logs").insert({
+    actor_name: currentUser.full_name || currentUser.name || "Unknown User",
+    actor_role: currentUser.role || "Unknown Role",
+    action,
+    module: "Aktiviti",
+    description,
+  });
+}
+
 export default function DistrictActivitiesPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [groups, setGroups] = useState<ScoutGroup[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua Status");
+  const [groupFilter, setGroupFilter] = useState("Semua Kumpulan");
+
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Activity | null>(null);
+
+  const [showActivityModal, setShowActivityModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const [form, setForm] = useState<ActivityForm>({
     activity_name: "",
     activity_date: "",
     location: "",
     description: "",
+    group_id: "",
+    group_name: "",
     status: "Akan Datang",
   });
 
-  const currentUser = useMemo(() => {
-    return JSON.parse(
-      localStorage.getItem("user") ||
-        localStorage.getItem("auth_user") ||
-        "{}"
-    );
-  }, []);
-
-  const groupName = currentUser.group_name || currentUser.district || "";
-
   useEffect(() => {
     fetchActivities();
+    fetchGroups();
   }, []);
 
   async function fetchActivities() {
     setLoading(true);
 
-    let query = supabase
+    const { data, error } = await supabase
       .from("activities")
       .select("*")
+      .is("deleted_at", null)
       .order("activity_date", { ascending: true });
-
-    if (groupName) {
-      query = query.eq("group_name", groupName);
-    }
-
-    const { data, error } = await query;
 
     if (error) {
       alert(error.message);
@@ -77,51 +100,179 @@ export default function DistrictActivitiesPage() {
     setLoading(false);
   }
 
+  async function fetchGroups() {
+    const { data, error } = await supabase
+      .from("groups")
+      .select("id, group_name, school_name, status")
+      .in("status", ["Aktif", "active"])
+      .order("group_name", { ascending: true });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setGroups(data || []);
+  }
+
+  const filteredActivities = useMemo(() => {
+    const keyword = search.toLowerCase();
+
+    return activities.filter((activity) => {
+      const matchSearch =
+        (activity.activity_name || "").toLowerCase().includes(keyword) ||
+        (activity.location || "").toLowerCase().includes(keyword) ||
+        (activity.group_name || "").toLowerCase().includes(keyword) ||
+        (activity.description || "").toLowerCase().includes(keyword);
+
+      const matchStatus =
+        statusFilter === "Semua Status" || activity.status === statusFilter;
+
+      const matchGroup =
+        groupFilter === "Semua Kumpulan" ||
+        activity.group_name === groupFilter;
+
+      return matchSearch && matchStatus && matchGroup;
+    });
+  }, [activities, search, statusFilter, groupFilter]);
+
+  const upcomingCount = activities.filter(
+    (a) => a.status === "Akan Datang"
+  ).length;
+
+  const openRegistrationCount = activities.filter(
+    (a) => a.status === "Pendaftaran Dibuka"
+  ).length;
+
+  const completedCount = activities.filter(
+    (a) => a.status === "Selesai"
+  ).length;
+
+  const cancelledCount = activities.filter(
+    (a) => a.status === "Dibatalkan"
+  ).length;
+
   function resetForm() {
+    setEditingActivity(null);
     setForm({
       activity_name: "",
       activity_date: "",
       location: "",
       description: "",
+      group_id: "",
+      group_name: "",
       status: "Akan Datang",
     });
   }
 
-  async function handleAddActivity(e: React.FormEvent) {
-    e.preventDefault();
+  function openAddModal() {
+    resetForm();
+    setShowActivityModal(true);
+  }
 
+  function openEditModal(activity: Activity) {
+    setEditingActivity(activity);
+
+    setForm({
+      activity_name: activity.activity_name || "",
+      activity_date: activity.activity_date || "",
+      location: activity.location || "",
+      description: activity.description || "",
+      group_id: activity.group_id || "",
+      group_name: activity.group_name || "",
+      status: activity.status || "Akan Datang",
+    });
+
+    setShowActivityModal(true);
+  }
+
+  function openViewModal(activity: Activity) {
+    setSelectedActivity(activity);
+    setShowViewModal(true);
+  }
+
+  function openCancelModal(activity: Activity) {
+    setCancelTarget(activity);
+    setShowCancelModal(true);
+  }
+
+  async function saveActivity() {
     if (!form.activity_name.trim()) {
-      alert("Nama aktiviti wajib diisi.");
+      alert("Sila isi nama aktiviti.");
       return;
     }
 
     if (!form.activity_date) {
-      alert("Tarikh aktiviti wajib diisi.");
+      alert("Sila pilih tarikh aktiviti.");
       return;
     }
 
     if (!form.location.trim()) {
-      alert("Lokasi wajib diisi.");
+      alert("Sila isi lokasi aktiviti.");
       return;
     }
 
-    if (!groupName) {
-      alert("Group pemimpin tidak dijumpai. Sila semak data user login.");
+    if (!form.group_id) {
+      alert("Sila pilih kumpulan / sekolah.");
       return;
     }
 
     setSaving(true);
 
     const payload = {
-      group_name: groupName,
       activity_name: form.activity_name.trim(),
       activity_date: form.activity_date,
       location: form.location.trim(),
-      description: form.description.trim(),
+      description: form.description.trim() || null,
+      group_id: form.group_id,
+      group_name: form.group_name,
       status: form.status,
+      updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase.from("activities").insert(payload);
+    if (editingActivity) {
+      const { error } = await supabase
+        .from("activities")
+        .update(payload)
+        .eq("id", editingActivity.id);
+
+      if (error) {
+        alert(error.message);
+        setSaving(false);
+        return;
+      }
+
+      await addAuditLog("UPDATE", `Kemaskini aktiviti ${form.activity_name}`);
+    } else {
+      const { error } = await supabase.from("activities").insert(payload);
+
+      if (error) {
+        alert(error.message);
+        setSaving(false);
+        return;
+      }
+
+      await addAuditLog("CREATE", `Tambah aktiviti ${form.activity_name}`);
+    }
+
+    await fetchActivities();
+    resetForm();
+    setShowActivityModal(false);
+    setSaving(false);
+  }
+
+  async function cancelActivity() {
+    if (!cancelTarget) return;
+
+    setSaving(true);
+
+    const { error } = await supabase
+      .from("activities")
+      .update({
+        status: "Dibatalkan",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", cancelTarget.id);
 
     if (error) {
       alert(error.message);
@@ -129,9 +280,11 @@ export default function DistrictActivitiesPage() {
       return;
     }
 
+    await addAuditLog("CANCEL", `Batalkan aktiviti ${cancelTarget.activity_name}`);
+
     await fetchActivities();
-    resetForm();
-    setShowAddModal(false);
+    setShowCancelModal(false);
+    setCancelTarget(null);
     setSaving(false);
   }
 
@@ -146,81 +299,33 @@ export default function DistrictActivitiesPage() {
   }
 
   function getStatusBadge(status: string) {
-    if (status === "Selesai" || status === "Completed") {
-      return (
-        <span className="badge rounded-pill bg-success-subtle text-success border border-success-subtle px-3 py-2">
-          Selesai
-        </span>
-      );
+    if (status === "Selesai") {
+      return <span className="badge bg-success">Selesai</span>;
     }
 
     if (status === "Pendaftaran Dibuka") {
-      return (
-        <span className="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle px-3 py-2">
-          Pendaftaran Dibuka
-        </span>
-      );
+      return <span className="badge bg-primary">Pendaftaran Dibuka</span>;
     }
 
     if (status === "Dibatalkan") {
-      return (
-        <span className="badge rounded-pill bg-danger-subtle text-danger border border-danger-subtle px-3 py-2">
-          Dibatalkan
-        </span>
-      );
+      return <span className="badge bg-danger">Dibatalkan</span>;
     }
 
-    return (
-      <span className="badge rounded-pill bg-info-subtle text-info border border-info-subtle px-3 py-2">
-        {status || "Akan Datang"}
-      </span>
-    );
+    return <span className="badge bg-info text-dark">Akan Datang</span>;
   }
 
-  const filteredActivities = useMemo(() => {
-    return activities.filter((activity) => {
-      const keyword = search.toLowerCase();
-
-      const matchSearch =
-        (activity.activity_name || "").toLowerCase().includes(keyword) ||
-        (activity.location || "").toLowerCase().includes(keyword) ||
-        (activity.group_name || "").toLowerCase().includes(keyword) ||
-        (activity.description || "").toLowerCase().includes(keyword);
-
-      const matchStatus =
-        statusFilter === "Semua Status" || activity.status === statusFilter;
-
-      return matchSearch && matchStatus;
-    });
-  }, [activities, search, statusFilter]);
-
-  const upcomingCount = activities.filter(
-    (a) => a.status === "Akan Datang" || a.status === "Upcoming"
-  ).length;
-
-  const completedCount = activities.filter(
-    (a) => a.status === "Selesai" || a.status === "Completed"
-  ).length;
-
-  const openRegistrationCount = activities.filter(
-    (a) => a.status === "Pendaftaran Dibuka"
-  ).length;
-
   return (
-    <DashboardLayout role="district">
+    <DashboardLayout role="district" hideSearch>
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
-          <h2 className="fw-bold mb-1">Aktiviti Kumpulan</h2>
+          <h2 className="fw-bold mb-1">Aktiviti Daerah</h2>
           <p className="text-muted mb-0">
-            Jadual dan rekod aktiviti kumpulan.
+            Urus aktiviti mengikut kumpulan dan sekolah dalam daerah.
           </p>
         </div>
 
         <div className="d-flex gap-2">
-          <button
-            className="btn btn-success"
-            onClick={() => setShowAddModal(true)}
-          >
+          <button className="btn btn-success" onClick={openAddModal}>
             <i className="bi bi-plus-circle me-1"></i>
             Tambah Aktiviti
           </button>
@@ -265,8 +370,10 @@ export default function DistrictActivitiesPage() {
         <div className="col-md-3">
           <div className="card border-0 shadow-sm rounded-4">
             <div className="card-body">
-              <p className="text-muted small mb-1">Selesai</p>
-              <h3 className="fw-bold text-success mb-0">{completedCount}</h3>
+              <p className="text-muted small mb-1">Selesai / Batal</p>
+              <h3 className="fw-bold text-success mb-0">
+                {completedCount} / {cancelledCount}
+              </h3>
             </div>
           </div>
         </div>
@@ -275,7 +382,7 @@ export default function DistrictActivitiesPage() {
       <div className="card border-0 shadow-sm rounded-4 overflow-hidden">
         <div className="card-body border-bottom p-4">
           <div className="row g-3">
-            <div className="col-md-8">
+            <div className="col-md-5">
               <div className="position-relative">
                 <i className="bi bi-search position-absolute top-50 start-0 translate-middle-y ms-3 text-muted"></i>
                 <input
@@ -288,6 +395,21 @@ export default function DistrictActivitiesPage() {
             </div>
 
             <div className="col-md-4">
+              <select
+                className="form-select rounded-3"
+                value={groupFilter}
+                onChange={(e) => setGroupFilter(e.target.value)}
+              >
+                <option>Semua Kumpulan</option>
+                {groups.map((group) => (
+                  <option key={group.id} value={group.group_name}>
+                    {group.group_name} — {group.school_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="col-md-3">
               <select
                 className="form-select rounded-3"
                 value={statusFilter}
@@ -322,7 +444,7 @@ export default function DistrictActivitiesPage() {
                   <td colSpan={6} className="text-center py-5">
                     <div className="spinner-border text-success"></div>
                     <p className="text-muted mt-3 mb-0">
-                      Memuatkan aktiviti kumpulan...
+                      Memuatkan aktiviti...
                     </p>
                   </td>
                 </tr>
@@ -352,10 +474,12 @@ export default function DistrictActivitiesPage() {
 
                     <td className="px-4 py-3 text-muted">
                       <i className="bi bi-geo-alt me-2"></i>
-                      {activity.location}
+                      {activity.location || "-"}
                     </td>
 
-                    <td className="px-4 py-3">{activity.group_name}</td>
+                    <td className="px-4 py-3">
+                      {activity.group_name || "-"}
+                    </td>
 
                     <td className="px-4 py-3">
                       {getStatusBadge(activity.status)}
@@ -363,11 +487,27 @@ export default function DistrictActivitiesPage() {
 
                     <td className="px-4 py-3 text-end">
                       <button
-                        className="btn btn-sm btn-light border rounded-3"
-                        onClick={() => setSelectedActivity(activity)}
+                        className="btn btn-sm btn-light border rounded-3 me-1"
+                        onClick={() => openViewModal(activity)}
                       >
                         <i className="bi bi-eye"></i>
                       </button>
+
+                      <button
+                        className="btn btn-sm btn-light border rounded-3 me-1"
+                        onClick={() => openEditModal(activity)}
+                      >
+                        <i className="bi bi-pencil"></i>
+                      </button>
+
+                      {activity.status !== "Dibatalkan" && (
+                        <button
+                          className="btn btn-sm btn-light border rounded-3 text-danger"
+                          onClick={() => openCancelModal(activity)}
+                        >
+                          <i className="bi bi-x-circle"></i>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -377,133 +517,162 @@ export default function DistrictActivitiesPage() {
         </div>
 
         <div className="card-footer bg-white border-top p-4 small text-muted">
-          Memaparkan {filteredActivities.length} daripada {activities.length}{" "}
-          rekod
+          Memaparkan {filteredActivities.length} daripada {activities.length} rekod
         </div>
       </div>
 
-      {showAddModal && (
+      {showActivityModal && (
         <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
           <div className="modal-dialog modal-dialog-centered modal-lg">
             <div className="modal-content border-0 rounded-4">
-              <form onSubmit={handleAddActivity}>
-                <div className="modal-header">
-                  <div>
-                    <h5 className="modal-title fw-bold">Tambah Aktiviti</h5>
-                    <small className="text-muted">
-                      Tambah aktiviti baharu untuk kumpulan ini.
-                    </small>
+              <div className="modal-header">
+                <div>
+                  <h5 className="modal-title fw-bold">
+                    {editingActivity ? "Edit Aktiviti" : "Tambah Aktiviti"}
+                  </h5>
+                  <small className="text-muted">
+                    Pilih kumpulan dan lengkapkan maklumat aktiviti.
+                  </small>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => {
+                    setShowActivityModal(false);
+                    resetForm();
+                  }}
+                ></button>
+              </div>
+
+              <div className="modal-body">
+                <div className="row g-3">
+                  <div className="col-md-12">
+                    <label className="form-label">Nama Aktiviti</label>
+                    <input
+                      className="form-control"
+                      value={form.activity_name}
+                      onChange={(e) =>
+                        setForm({ ...form, activity_name: e.target.value })
+                      }
+                      placeholder="Contoh: Perkhemahan Unit Pengakap"
+                    />
                   </div>
 
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowAddModal(false)}
-                  ></button>
-                </div>
+                  <div className="col-md-6">
+                    <label className="form-label">Tarikh Aktiviti</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={form.activity_date}
+                      onChange={(e) =>
+                        setForm({ ...form, activity_date: e.target.value })
+                      }
+                    />
+                  </div>
 
-                <div className="modal-body">
-                  <div className="row g-3">
-                    <div className="col-md-12">
-                      <label className="form-label">Nama Aktiviti</label>
-                      <input
-                        className="form-control"
-                        value={form.activity_name}
-                        onChange={(e) =>
-                          setForm({ ...form, activity_name: e.target.value })
-                        }
-                        placeholder="Contoh: Perkhemahan Unit Pengakap"
-                        required
-                      />
-                    </div>
+                  <div className="col-md-6">
+                    <label className="form-label">Status</label>
+                    <select
+                      className="form-select"
+                      value={form.status}
+                      onChange={(e) =>
+                        setForm({ ...form, status: e.target.value })
+                      }
+                    >
+                      <option>Akan Datang</option>
+                      <option>Pendaftaran Dibuka</option>
+                      <option>Selesai</option>
+                      <option>Dibatalkan</option>
+                    </select>
+                  </div>
 
-                    <div className="col-md-6">
-                      <label className="form-label">Tarikh Aktiviti</label>
-                      <input
-                        type="date"
-                        className="form-control"
-                        value={form.activity_date}
-                        onChange={(e) =>
-                          setForm({ ...form, activity_date: e.target.value })
-                        }
-                        required
-                      />
-                    </div>
+                  <div className="col-md-12">
+                    <label className="form-label">Kumpulan / Sekolah</label>
+                    <select
+                      className="form-select"
+                      value={form.group_id}
+                      onChange={(e) => {
+                        const selectedGroup = groups.find(
+                          (group) => group.id === e.target.value
+                        );
 
-                    <div className="col-md-6">
-                      <label className="form-label">Status</label>
-                      <select
-                        className="form-select"
-                        value={form.status}
-                        onChange={(e) =>
-                          setForm({ ...form, status: e.target.value })
-                        }
-                      >
-                        <option>Akan Datang</option>
-                        <option>Pendaftaran Dibuka</option>
-                        <option>Selesai</option>
-                        <option>Dibatalkan</option>
-                      </select>
-                    </div>
+                        setForm({
+                          ...form,
+                          group_id: e.target.value,
+                          group_name: selectedGroup?.group_name || "",
+                        });
+                      }}
+                    >
+                      <option value="">Pilih Kumpulan / Sekolah</option>
 
-                    <div className="col-md-12">
-                      <label className="form-label">Lokasi</label>
-                      <input
-                        className="form-control"
-                        value={form.location}
-                        onChange={(e) =>
-                          setForm({ ...form, location: e.target.value })
-                        }
-                        placeholder="Contoh: SK Setiawangsa"
-                        required
-                      />
-                    </div>
+                      {groups.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.group_name} — {group.school_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                    <div className="col-md-12">
-                      <label className="form-label">Kumpulan</label>
-                      <input
-                        className="form-control"
-                        value={groupName}
-                        disabled
-                      />
-                    </div>
+                  <div className="col-md-12">
+                    <label className="form-label">Lokasi</label>
+                    <input
+                      className="form-control"
+                      value={form.location}
+                      onChange={(e) =>
+                        setForm({ ...form, location: e.target.value })
+                      }
+                      placeholder="Contoh: SK Setiawangsa"
+                    />
+                  </div>
 
-                    <div className="col-md-12">
-                      <label className="form-label">Penerangan Aktiviti</label>
-                      <textarea
-                        className="form-control"
-                        rows={4}
-                        value={form.description}
-                        onChange={(e) =>
-                          setForm({ ...form, description: e.target.value })
-                        }
-                        placeholder="Contoh: Aktiviti latihan asas, kawad kaki, ikatan dan simpulan."
-                      ></textarea>
-                    </div>
+                  <div className="col-md-12">
+                    <label className="form-label">Penerangan Aktiviti</label>
+                    <textarea
+                      className="form-control"
+                      rows={4}
+                      value={form.description}
+                      onChange={(e) =>
+                        setForm({ ...form, description: e.target.value })
+                      }
+                      placeholder="Contoh: Aktiviti latihan asas, kawad kaki, ikatan dan simpulan."
+                    ></textarea>
                   </div>
                 </div>
+              </div>
 
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary"
-                    onClick={() => setShowAddModal(false)}
-                    disabled={saving}
-                  >
-                    Batal
-                  </button>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={() => {
+                    setShowActivityModal(false);
+                    resetForm();
+                  }}
+                  disabled={saving}
+                >
+                  Batal
+                </button>
 
-                  <button className="btn btn-success" disabled={saving}>
-                    {saving ? "Menyimpan..." : "Simpan Aktiviti"}
-                  </button>
-                </div>
-              </form>
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  onClick={saveActivity}
+                  disabled={saving}
+                >
+                  {saving
+                    ? "Menyimpan..."
+                    : editingActivity
+                    ? "Kemaskini Aktiviti"
+                    : "Simpan Aktiviti"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {selectedActivity && (
+      {showViewModal && selectedActivity && (
         <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content border-0 rounded-4">
@@ -511,16 +680,16 @@ export default function DistrictActivitiesPage() {
                 <h5 className="modal-title fw-bold">Maklumat Aktiviti</h5>
                 <button
                   className="btn-close"
-                  onClick={() => setSelectedActivity(null)}
+                  onClick={() => setShowViewModal(false)}
                 ></button>
               </div>
 
               <div className="modal-body">
-                <div className="mb-4">
+                <div className="mb-3">
                   <h5 className="fw-bold mb-1">
                     {selectedActivity.activity_name}
                   </h5>
-                  <div>{getStatusBadge(selectedActivity.status)}</div>
+                  {getStatusBadge(selectedActivity.status)}
                 </div>
 
                 <div className="list-group list-group-flush">
@@ -531,12 +700,12 @@ export default function DistrictActivitiesPage() {
 
                   <div className="list-group-item d-flex justify-content-between">
                     <span className="text-muted">Lokasi</span>
-                    <strong>{selectedActivity.location}</strong>
+                    <strong>{selectedActivity.location || "-"}</strong>
                   </div>
 
                   <div className="list-group-item d-flex justify-content-between">
                     <span className="text-muted">Kumpulan</span>
-                    <strong>{selectedActivity.group_name}</strong>
+                    <strong>{selectedActivity.group_name || "-"}</strong>
                   </div>
 
                   <div className="list-group-item">
@@ -551,9 +720,62 @@ export default function DistrictActivitiesPage() {
               <div className="modal-footer">
                 <button
                   className="btn btn-outline-secondary"
-                  onClick={() => setSelectedActivity(null)}
+                  onClick={() => setShowViewModal(false)}
                 >
                   Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCancelModal && cancelTarget && (
+        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0 rounded-4">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold text-danger">
+                  Batalkan Aktiviti
+                </h5>
+
+                <button
+                  className="btn-close"
+                  onClick={() => {
+                    setShowCancelModal(false);
+                    setCancelTarget(null);
+                  }}
+                ></button>
+              </div>
+
+              <div className="modal-body">
+                <p className="mb-1">
+                  Adakah anda pasti mahu batalkan aktiviti ini?
+                </p>
+                <strong>{cancelTarget.activity_name}</strong>
+                <p className="text-muted small mt-2 mb-0">
+                  Status aktiviti akan ditukar kepada Dibatalkan.
+                </p>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  className="btn btn-outline-secondary"
+                  onClick={() => {
+                    setShowCancelModal(false);
+                    setCancelTarget(null);
+                  }}
+                  disabled={saving}
+                >
+                  Batal
+                </button>
+
+                <button
+                  className="btn btn-danger"
+                  onClick={cancelActivity}
+                  disabled={saving}
+                >
+                  {saving ? "Memproses..." : "Batalkan"}
                 </button>
               </div>
             </div>

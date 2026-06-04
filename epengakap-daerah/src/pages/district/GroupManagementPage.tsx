@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../services/supabaseClient";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { addAuditLog } from "../../utils/auditLog";
@@ -11,6 +11,7 @@ type ScoutGroup = {
   leader_name: string | null;
   total_members: number;
   status: string;
+  created_at?: string;
 };
 
 type LeaderUser = {
@@ -18,6 +19,15 @@ type LeaderUser = {
   full_name: string;
   email: string | null;
   role: string;
+  status: string;
+};
+
+type GroupForm = {
+  group_name: string;
+  school_name: string;
+  leader_user_id: string;
+  leader_name: string;
+  total_members: string;
   status: string;
 };
 
@@ -30,16 +40,19 @@ export default function GroupManagementPage() {
   const [deleteTarget, setDeleteTarget] = useState<ScoutGroup | null>(null);
 
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showMembersModal, setShowMembersModal] = useState(false);
-  const [groupMembers, setGroupMembers] = useState<any[]>([]);
   const [showActivitiesModal, setShowActivitiesModal] = useState(false);
+
+  const [groupMembers, setGroupMembers] = useState<any[]>([]);
   const [groupActivities, setGroupActivities] = useState<any[]>([]);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<GroupForm>({
     group_name: "",
     school_name: "",
     leader_user_id: "",
@@ -54,26 +67,52 @@ export default function GroupManagementPage() {
   }, []);
 
   async function fetchGroups() {
+    setLoading(true);
+
     const { data, error } = await supabase
       .from("groups")
-      .select("*")
+      .select(
+        "id, group_name, school_name, leader_user_id, leader_name, total_members, status, created_at"
+      )
       .order("created_at", { ascending: false });
+
+    if (error) {
+      alert(error.message);
+      setLoading(false);
+      return;
+    }
+
+    setGroups(data || []);
+    setLoading(false);
+  }
+
+  async function fetchActiveGroupLeaders() {
+    const { data, error } = await supabase
+      .from("system_users")
+      .select("id, full_name, email, role, status")
+      .in("role", ["Pemimpin Kumpulan", "group_leader"])
+      .in("status", ["Aktif", "active"])
+      .order("full_name", { ascending: true });
 
     if (error) {
       alert(error.message);
       return;
     }
 
-    setGroups(data || []);
+    setLeaders(data || []);
   }
 
-  const filteredGroups = groups.filter((group) => {
-    return (
-      group.group_name.toLowerCase().includes(search.toLowerCase()) ||
-      group.school_name.toLowerCase().includes(search.toLowerCase()) ||
-      (group.leader_name || "").toLowerCase().includes(search.toLowerCase())
-    );
-  });
+  const filteredGroups = useMemo(() => {
+    const keyword = search.toLowerCase();
+
+    return groups.filter((group) => {
+      return (
+        (group.group_name || "").toLowerCase().includes(keyword) ||
+        (group.school_name || "").toLowerCase().includes(keyword) ||
+        (group.leader_name || "").toLowerCase().includes(keyword)
+      );
+    });
+  }, [groups, search]);
 
   function resetForm() {
     setEditingGroup(null);
@@ -99,13 +138,14 @@ export default function GroupManagementPage() {
 
   function openEditModal(group: ScoutGroup) {
     setEditingGroup(group);
+
     setForm({
-      group_name: group.group_name,
-      school_name: group.school_name,
+      group_name: group.group_name || "",
+      school_name: group.school_name || "",
       leader_user_id: group.leader_user_id || "",
       leader_name: group.leader_name || "",
       total_members: String(group.total_members || 0),
-      status: group.status,
+      status: group.status || "Aktif",
     });
 
     setShowManageModal(false);
@@ -119,14 +159,21 @@ export default function GroupManagementPage() {
   }
 
   async function saveGroup() {
-    if (!form.group_name.trim() || !form.school_name.trim()) {
-      alert("Sila isi nama kumpulan dan sekolah.");
+    if (!form.group_name.trim()) {
+      alert("Sila isi nama kumpulan.");
       return;
     }
 
+    if (!form.school_name.trim()) {
+      alert("Sila isi nama sekolah.");
+      return;
+    }
+
+    setSaving(true);
+
     const payload = {
-      group_name: form.group_name,
-      school_name: form.school_name,
+      group_name: form.group_name.trim(),
+      school_name: form.school_name.trim(),
       leader_user_id: form.leader_user_id || null,
       leader_name: form.leader_name || null,
       total_members: Number(form.total_members || 0),
@@ -141,109 +188,113 @@ export default function GroupManagementPage() {
 
       if (error) {
         alert(error.message);
+        setSaving(false);
         return;
       }
+
+      await addAuditLog(
+        "UPDATE",
+        "Kumpulan / Sekolah",
+        `Kemaskini kumpulan ${form.group_name}`
+      );
     } else {
       const { error } = await supabase.from("groups").insert(payload);
 
       if (error) {
         alert(error.message);
+        setSaving(false);
         return;
       }
+
+      await addAuditLog(
+        "CREATE",
+        "Kumpulan / Sekolah",
+        `Tambah kumpulan ${form.group_name}`
+      );
     }
 
-    await addAuditLog(
-      editingGroup ? "UPDATE" : "CREATE",
-      "Kumpulan / Sekolah",
-      editingGroup
-        ? `Kemaskini kumpulan ${form.group_name}`
-        : `Tambah kumpulan ${form.group_name}`
-    );
     await fetchGroups();
     resetForm();
     setShowGroupModal(false);
+    setSaving(false);
   }
 
-  async function deleteGroup() {
+  async function deactivateGroup() {
     if (!deleteTarget) return;
+
+    setSaving(true);
 
     const { error } = await supabase
       .from("groups")
-      .delete()
+      .update({ status: "Tidak Aktif" })
       .eq("id", deleteTarget.id);
+
+    if (error) {
+      alert(error.message);
+      setSaving(false);
+      return;
+    }
+
+    await addAuditLog(
+      "DEACTIVATE",
+      "Kumpulan / Sekolah",
+      `Nyahaktif kumpulan ${deleteTarget.group_name}`
+    );
+
+    await fetchGroups();
+    setShowDeleteModal(false);
+    setDeleteTarget(null);
+    setSaving(false);
+  }
+
+  async function viewMembers(group: ScoutGroup) {
+    const possibleGroupNames = [group.group_name, group.school_name].filter(
+      Boolean
+    );
+
+    const { data, error } = await supabase
+      .from("members")
+      .select("*")
+      .in("group_name", possibleGroupNames);
 
     if (error) {
       alert(error.message);
       return;
     }
 
-    await addAuditLog(
-      "Delete",
-      "Kumpulan / Sekolah",
-      `Padam kumpulan ${deleteTarget.group_name}`
+    setGroupMembers(data || []);
+    setShowMembersModal(true);
+  }
+
+  async function viewActivities(group: ScoutGroup) {
+    const possibleGroupNames = [group.group_name, group.school_name].filter(
+      Boolean
     );
-    await fetchGroups();
-    setShowDeleteModal(false);
-    setDeleteTarget(null);
-    setSelectedGroup(null);
+
+    const { data, error } = await supabase
+      .from("activities")
+      .select("*")
+      .in("group_name", possibleGroupNames)
+      .order("activity_date", { ascending: true });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setGroupActivities(data || []);
+    setShowActivitiesModal(true);
   }
 
-async function viewMembers(group: ScoutGroup) {
-  const possibleGroupNames = [
-    group.group_name,
-    group.school_name,
-  ].filter(Boolean);
+  function formatDate(date: string) {
+    if (!date) return "-";
 
-  const { data, error } = await supabase
-    .from("members")
-    .select("*")
-    .in("group_name", possibleGroupNames);
-
-  if (error) {
-    alert(error.message);
-    return;
+    return new Date(date).toLocaleDateString("ms-MY", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
   }
-
-  setGroupMembers(data || []);
-  setShowMembersModal(true);
-}
-
-async function viewActivities(group: ScoutGroup) {
-  const possibleGroupNames = [
-    group.group_name,
-    group.school_name,
-  ].filter(Boolean);
-
-  const { data, error } = await supabase
-    .from("activities")
-    .select("*")
-    .in("group_name", possibleGroupNames)
-    .order("activity_date", { ascending: true });
-
-  if (error) {
-    alert(error.message);
-    return;
-  }
-
-  setGroupActivities(data || []);
-  setShowActivitiesModal(true);
-}
-
-async function fetchActiveGroupLeaders() {
-  const { data, error } = await supabase
-    .from("system_users")
-    .select("id, full_name, email, role, status")
-    .in("role", ["Pemimpin Kumpulan", "group_leader"])
-    .in("status", ["Aktif", "active"])
-    .order("full_name", { ascending: true });
-
-  if (error) {
-    alert(error.message);
-    return;
-  }
-
-  setLeaders(data || []);
-}
 
   return (
     <DashboardLayout role="district">
@@ -254,7 +305,7 @@ async function fetchActiveGroupLeaders() {
         </p>
       </div>
 
-      <div className="card border-0 shadow-sm">
+      <div className="card border-0 shadow-sm rounded-4">
         <div className="card-body border-bottom">
           <div className="row g-3 align-items-center">
             <div className="col-md-9">
@@ -286,7 +337,14 @@ async function fetchActiveGroupLeaders() {
         </div>
 
         <div className="card-body">
-          {filteredGroups.length === 0 ? (
+          {loading ? (
+            <div className="text-center py-5">
+              <div className="spinner-border text-success"></div>
+              <p className="text-muted mt-3 mb-0">
+                Memuatkan senarai kumpulan...
+              </p>
+            </div>
+          ) : filteredGroups.length === 0 ? (
             <div className="text-center py-5 text-muted">
               <i className="bi bi-inbox fs-1 d-block mb-2"></i>
               Tiada kumpulan dijumpai.
@@ -295,7 +353,7 @@ async function fetchActiveGroupLeaders() {
             <div className="row g-4">
               {filteredGroups.map((group) => (
                 <div className="col-md-6 col-xl-4" key={group.id}>
-                  <div className="card h-100 border shadow-sm">
+                  <div className="card h-100 border shadow-sm rounded-4">
                     <div className="card-body p-4">
                       <div className="d-flex justify-content-between align-items-start mb-3">
                         <div>
@@ -314,14 +372,16 @@ async function fetchActiveGroupLeaders() {
                         >
                           {group.status === "Aktif"
                             ? "Aktif"
-                            : "Perlu Semakan"}
+                            : "Tidak Aktif"}
                         </span>
                       </div>
 
                       <div className="mb-4">
-                        <div className="text-muted small">Pemimpin Kumpulan</div>
+                        <div className="text-muted small">
+                          Pemimpin Kumpulan
+                        </div>
                         <div className="fw-semibold">
-                          {group.leader_name || "—"}
+                          {group.leader_name || "Belum ditetapkan"}
                         </div>
                       </div>
 
@@ -359,7 +419,7 @@ async function fetchActiveGroupLeaders() {
           style={{ background: "rgba(0,0,0,.55)" }}
         >
           <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content border-0">
+            <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
                 <h5 className="modal-title fw-bold">Urus Kumpulan</h5>
 
@@ -432,8 +492,8 @@ async function fetchActiveGroupLeaders() {
                     className="btn btn-outline-danger"
                     onClick={() => openDeleteModal(selectedGroup)}
                   >
-                    <i className="bi bi-trash me-1"></i>
-                    Padam Kumpulan
+                    <i className="bi bi-x-circle me-1"></i>
+                    Nyahaktif Kumpulan
                   </button>
                 </div>
               </div>
@@ -449,7 +509,7 @@ async function fetchActiveGroupLeaders() {
           style={{ background: "rgba(0,0,0,.55)" }}
         >
           <div className="modal-dialog modal-lg modal-dialog-centered">
-            <div className="modal-content border-0">
+            <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
                 <h5 className="modal-title fw-bold">
                   {editingGroup ? "Edit Kumpulan" : "Tambah Kumpulan"}
@@ -501,7 +561,7 @@ async function fetchActiveGroupLeaders() {
                         const selectedLeader = leaders.find(
                           (leader) => leader.id === e.target.value
                         );
-                      
+
                         setForm({
                           ...form,
                           leader_user_id: e.target.value,
@@ -510,7 +570,7 @@ async function fetchActiveGroupLeaders() {
                       }}
                     >
                       <option value="">Pilih Pemimpin Kumpulan</option>
-                    
+
                       {leaders.map((leader) => (
                         <option key={leader.id} value={leader.id}>
                           {leader.full_name}
@@ -518,10 +578,10 @@ async function fetchActiveGroupLeaders() {
                         </option>
                       ))}
                     </select>
-                    
+
                     {leaders.length === 0 && (
                       <small className="text-muted">
-                        Tiada Pemimpin Kumpulan aktif dijumpai. Sila tambah user role Pemimpin Kumpulan dahulu.
+                        Tiada Pemimpin Kumpulan aktif dijumpai.
                       </small>
                     )}
                   </div>
@@ -563,6 +623,7 @@ async function fetchActiveGroupLeaders() {
                     setShowGroupModal(false);
                     resetForm();
                   }}
+                  disabled={saving}
                 >
                   Tutup
                 </button>
@@ -571,8 +632,13 @@ async function fetchActiveGroupLeaders() {
                   type="button"
                   className="btn btn-success"
                   onClick={saveGroup}
+                  disabled={saving}
                 >
-                  {editingGroup ? "Kemaskini Kumpulan" : "Simpan Kumpulan"}
+                  {saving
+                    ? "Menyimpan..."
+                    : editingGroup
+                    ? "Kemaskini Kumpulan"
+                    : "Simpan Kumpulan"}
                 </button>
               </div>
             </div>
@@ -587,10 +653,10 @@ async function fetchActiveGroupLeaders() {
           style={{ background: "rgba(0,0,0,.55)" }}
         >
           <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content border-0">
+            <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
                 <h5 className="modal-title fw-bold text-danger">
-                  Padam Kumpulan
+                  Nyahaktif Kumpulan
                 </h5>
 
                 <button
@@ -604,10 +670,13 @@ async function fetchActiveGroupLeaders() {
               </div>
 
               <div className="modal-body">
-                <p className="mb-1">Adakah anda pasti mahu padam kumpulan ini?</p>
+                <p className="mb-1">
+                  Adakah anda pasti mahu nyahaktif kumpulan ini?
+                </p>
                 <strong>{deleteTarget.group_name}</strong>
                 <p className="text-muted small mt-2 mb-0">
-                  Tindakan ini tidak boleh dibatalkan.
+                  Kumpulan tidak dipadam kekal. Status akan ditukar kepada Tidak
+                  Aktif.
                 </p>
               </div>
 
@@ -619,6 +688,7 @@ async function fetchActiveGroupLeaders() {
                     setShowDeleteModal(false);
                     setDeleteTarget(null);
                   }}
+                  disabled={saving}
                 >
                   Batal
                 </button>
@@ -626,9 +696,10 @@ async function fetchActiveGroupLeaders() {
                 <button
                   type="button"
                   className="btn btn-danger"
-                  onClick={deleteGroup}
+                  onClick={deactivateGroup}
+                  disabled={saving}
                 >
-                  Padam
+                  {saving ? "Memproses..." : "Nyahaktif"}
                 </button>
               </div>
             </div>
@@ -642,25 +713,23 @@ async function fetchActiveGroupLeaders() {
           style={{ background: "rgba(0,0,0,.55)" }}
         >
           <div className="modal-dialog modal-lg modal-dialog-centered">
-            <div className="modal-content">
-          
+            <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
-                <h5 className="fw-bold">Senarai Ahli Kumpulan</h5>
-          
+                <h5 className="fw-bold mb-0">Senarai Ahli Kumpulan</h5>
+
                 <button
                   className="btn-close"
                   onClick={() => setShowMembersModal(false)}
                 />
               </div>
-          
+
               <div className="modal-body">
-          
                 {groupMembers.length === 0 ? (
-                  <p className="text-muted">
+                  <p className="text-muted mb-0">
                     Tiada ahli dalam kumpulan ini.
                   </p>
                 ) : (
-                  <table className="table">
+                  <table className="table align-middle">
                     <thead>
                       <tr>
                         <th>Nama</th>
@@ -669,7 +738,7 @@ async function fetchActiveGroupLeaders() {
                         <th>Status</th>
                       </tr>
                     </thead>
-              
+
                     <tbody>
                       {groupMembers.map((member) => (
                         <tr key={member.id}>
@@ -682,31 +751,30 @@ async function fetchActiveGroupLeaders() {
                     </tbody>
                   </table>
                 )}
-    
               </div>
-            
             </div>
           </div>
         </div>
-    )}
+      )}
 
-    {showActivitiesModal && (
+      {showActivitiesModal && (
         <div
           className="modal d-block"
           tabIndex={-1}
           style={{ background: "rgba(0,0,0,.55)" }}
         >
           <div className="modal-dialog modal-lg modal-dialog-centered">
-            <div className="modal-content border-0">
+            <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
                 <h5 className="modal-title fw-bold">Aktiviti Kumpulan</h5>
+
                 <button
                   type="button"
                   className="btn-close"
                   onClick={() => setShowActivitiesModal(false)}
                 ></button>
               </div>
-          
+
               <div className="modal-body">
                 {groupActivities.length === 0 ? (
                   <p className="text-muted mb-0">
@@ -722,12 +790,12 @@ async function fetchActiveGroupLeaders() {
                         <th>Status</th>
                       </tr>
                     </thead>
-                
+
                     <tbody>
                       {groupActivities.map((activity) => (
                         <tr key={activity.id}>
                           <td>{activity.activity_name}</td>
-                          <td>{activity.activity_date}</td>
+                          <td>{formatDate(activity.activity_date)}</td>
                           <td>{activity.location || "-"}</td>
                           <td>
                             <span className="badge bg-primary">

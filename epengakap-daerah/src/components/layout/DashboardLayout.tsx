@@ -9,13 +9,17 @@ type RoleType =
   | "groupLeader"
   | "assistantLeader";
 
+type DashboardLayoutProps = {
+  children: React.ReactNode;
+  role?: RoleType;
+  hideSearch?: boolean;
+};
+
 export default function DashboardLayout({
   children,
   role = "district",
-}: {
-  children: React.ReactNode;
-  role?: RoleType;
-}) {
+  hideSearch = false,
+}: DashboardLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -43,7 +47,11 @@ export default function DashboardLayout({
           transition: "margin-left 0.25s ease",
         }}
       >
-        <Topbar role={role} onToggleSidebar={() => setCollapsed(!collapsed)} />
+        <Topbar
+          role={role}
+          hideSearch={hideSearch}
+          onToggleSidebar={() => setCollapsed(!collapsed)}
+        />
 
         <main className="p-4" style={{ maxWidth: "100%", overflowX: "hidden" }}>
           {children}

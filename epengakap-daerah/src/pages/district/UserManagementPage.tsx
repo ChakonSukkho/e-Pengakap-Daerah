@@ -275,7 +275,6 @@ export default function UserManagementPage() {
                 onChange={(e) => setRoleFilter(e.target.value)}
               >
                 <option>Semua Role</option>
-                <option>Pesuruhjaya Daerah</option>
                 <option>Penolong Pesuruhjaya Daerah</option>
                 <option>Ahli Majlis</option>
                 <option>Pemimpin Kumpulan</option>
@@ -502,7 +501,6 @@ export default function UserManagementPage() {
                         setForm({ ...form, role: e.target.value })
                       }
                     >
-                      <option>Pesuruhjaya Daerah</option>
                       <option>Penolong Pesuruhjaya Daerah</option>
                       <option>Ahli Majlis</option>
                       <option>Pemimpin Kumpulan</option>
