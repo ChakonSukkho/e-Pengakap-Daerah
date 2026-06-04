@@ -1,461 +1,954 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
-import StatCard from "../../components/ui/StatCard";
 import { supabase } from "../../services/supabaseClient";
 
-type AuditLog = {
+type MemberRow = {
   id: string;
-  actor_name: string;
-  actor_role: string;
-  action: string;
-  module: string;
-  description: string;
-  created_at: string;
+  full_name?: string | null;
+  group_id?: string | null;
+  group_name?: string | null;
+  category?: string | null;
+  scout_category?: string | null;
+  gender?: string | null;
+  status?: string | null;
+  district?: string | null;
+  district_environment_id?: string | null;
+  created_at?: string | null;
+  deleted_at?: string | null;
 };
 
 type GroupRow = {
   id: string;
-  group_name: string;
-  school_name: string;
-  leader_name: string;
-  total_members: number;
-  status: string;
+  group_name?: string | null;
+  school_name?: string | null;
+  group_code?: string | null;
+  group_type?: string | null;
+  leader_name?: string | null;
+  status?: string | null;
+  district?: string | null;
+  district_environment_id?: string | null;
+  created_at?: string | null;
+  deleted_at?: string | null;
 };
 
+type UserRow = {
+  id: string;
+  full_name?: string | null;
+  name?: string | null;
+  email?: string | null;
+  role?: string | null;
+  district?: string | null;
+  district_environment_id?: string | null;
+  group_id?: string | null;
+  group_name?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  deleted_at?: string | null;
+};
+
+type ActivityRow = {
+  id: string;
+  activity_name?: string | null;
+  title?: string | null;
+  group_name?: string | null;
+  activity_date?: string | null;
+  date?: string | null;
+  status?: string | null;
+  district?: string | null;
+  district_environment_id?: string | null;
+  created_at?: string | null;
+};
+
+type AuditLogRow = {
+  id: string;
+  actor_name?: string | null;
+  action?: string | null;
+  module?: string | null;
+  description?: string | null;
+  district_environment_id?: string | null;
+  created_at?: string | null;
+};
+
+function getCurrentUser() {
+  return JSON.parse(
+    localStorage.getItem("user") ||
+      localStorage.getItem("auth_user") ||
+      "{}"
+  );
+}
+
+function getUserDistrict() {
+  const currentUser = getCurrentUser();
+
+  return (
+    currentUser.district ||
+    currentUser.district_name ||
+    currentUser.daerah ||
+    ""
+  );
+}
+
+function getUserState() {
+  const currentUser = getCurrentUser();
+
+  return (
+    currentUser.state ||
+    currentUser.state_name ||
+    currentUser.negeri ||
+    ""
+  );
+}
+
+function normalizeStatus(status?: string | null) {
+  const value = String(status || "").trim().toLowerCase();
+
+  if (value === "aktif" || value === "active") return "Aktif";
+  if (value === "tidak aktif" || value === "inactive") return "Tidak Aktif";
+  if (value === "archived" || value === "arkib") return "Arkib";
+
+  return status || "-";
+}
+
+function isActive(status?: string | null) {
+  const value = String(status || "").trim().toLowerCase();
+  return value === "aktif" || value === "active";
+}
+
+function isInactive(status?: string | null) {
+  const value = String(status || "").trim().toLowerCase();
+  return value === "tidak aktif" || value === "inactive";
+}
+
+function normalizeRole(role?: string | null) {
+  if (!role) return "-";
+
+  if (role === "Penolong Pesuruhjaya") return "Penolong Pesuruhjaya Daerah";
+  if (role === "District") return "Pesuruhjaya Daerah";
+
+  return role;
+}
+
+function getMemberCategory(member: MemberRow) {
+  return member.scout_category || member.category || "Tidak Ditetapkan";
+}
+
+function getActivityName(activity: ActivityRow) {
+  return activity.activity_name || activity.title || "Aktiviti Tanpa Nama";
+}
+
+function getActivityDate(activity: ActivityRow) {
+  return activity.activity_date || activity.date || activity.created_at || "";
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "-";
+
+  return new Date(value).toLocaleDateString("ms-MY", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+
+  return new Date(value).toLocaleString("ms-MY", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function percentage(value: number, total: number) {
+  if (!total) return 0;
+  return Math.round((value / total) * 100);
+}
+
+function softBg(index: number) {
+  const classes = [
+    "bg-success-subtle text-success",
+    "bg-primary-subtle text-primary",
+    "bg-warning-subtle text-warning",
+    "bg-info-subtle text-info",
+    "bg-danger-subtle text-danger",
+    "bg-secondary-subtle text-secondary",
+  ];
+
+  return classes[index % classes.length];
+}
+
+function StatCard({
+  title,
+  value,
+  subtitle,
+  icon,
+  colorClass,
+}: {
+  title: string;
+  value: number | string;
+  subtitle: string;
+  icon: string;
+  colorClass: string;
+}) {
+  return (
+    <div className="card border-0 shadow-sm rounded-4 h-100">
+      <div className="card-body p-4">
+        <div className="d-flex justify-content-between align-items-start">
+          <div>
+            <small className="text-muted">{title}</small>
+            <h2 className="fw-bold mb-1">{value}</h2>
+            <small className="text-muted">{subtitle}</small>
+          </div>
+
+          <div
+            className={`rounded-4 d-flex align-items-center justify-content-center ${colorClass}`}
+            style={{ width: 52, height: 52 }}
+          >
+            <i className={`bi ${icon} fs-4`}></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DistrictDashboard() {
-  const [totalMembers, setTotalMembers] = useState(0);
-  const [activeMembers, setActiveMembers] = useState(0);
-  const [totalGroups, setTotalGroups] = useState(0);
-  const [totalUsers, setTotalUsers] = useState(0);
-  const [leadersCount, setLeadersCount] = useState(0);
-  const [assistantLeadersCount, setAssistantLeadersCount] = useState(0);
-  const [assistantCommissionersCount, setAssistantCommissionersCount] = useState(0);
-  const [monthActivities, setMonthActivities] = useState(0);
+  const currentUser = getCurrentUser();
 
-  const [recentLogs, setRecentLogs] = useState<AuditLog[]>([]);
-  const [topGroups, setTopGroups] = useState<GroupRow[]>([]);
+  const [members, setMembers] = useState<MemberRow[]>([]);
+  const [groups, setGroups] = useState<GroupRow[]>([]);
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [activities, setActivities] = useState<ActivityRow[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([]);
 
-  const [categoryStats, setCategoryStats] = useState([
-    { label: "Pengakap Kanak-Kanak", value: 0, percent: 0, color: "success" },
-    { label: "Pengakap Muda", value: 0, percent: 0, color: "primary" },
-    { label: "Pengakap Remaja", value: 0, percent: 0, color: "warning" },
-    { label: "Pengakap Kelana", value: 0, percent: 0, color: "danger" },
-  ]);
+  const [officialName, setOfficialName] = useState("");
+  const [environmentStatus, setEnvironmentStatus] = useState("Aktif");
+  const [loading, setLoading] = useState(true);
 
-  const [genderStats, setGenderStats] = useState([
-    { label: "Lelaki", value: 0, percent: 0 },
-    { label: "Perempuan", value: 0, percent: 0 },
-  ]);
+  const district = getUserDistrict();
+  const state = getUserState();
+  const districtEnvironmentId = currentUser.district_environment_id || "";
 
   useEffect(() => {
-    fetchDashboardStats();
+    loadDashboard();
   }, []);
 
-  async function fetchDashboardStats() {
-    const now = new Date();
+  function applyDistrictScope(query: any) {
 
-    const startMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-      .toISOString()
-      .slice(0, 10);
+    return query;
+  }
 
-    const endMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-      .toISOString()
-      .slice(0, 10);
+  async function loadDashboard() {
+    setLoading(true);
 
-    const { count: membersCount } = await supabase
-      .from("members")
-      .select("*", { count: "exact", head: true });
+    await Promise.all([
+      fetchDistrictSettings(),
+      fetchMembers(),
+      fetchGroups(),
+      fetchUsers(),
+      fetchActivities(),
+      fetchAuditLogs(),
+    ]);
 
-    const { count: activeMembersCount } = await supabase
-      .from("members")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "Aktif");
+    setLoading(false);
+  }
 
-    const { count: groupsCount } = await supabase
-      .from("groups")
-      .select("*", { count: "exact", head: true });
+  async function fetchDistrictSettings() {
+    let query = supabase.from("district_settings").select("*").limit(1);
 
-    const { count: usersCount } = await supabase
-      .from("system_users")
-      .select("*", { count: "exact", head: true });
+    if (district) {
+      query = query.eq("district", district);
+    }
 
-    const { count: leaderCount } = await supabase
-      .from("system_users")
-      .select("*", { count: "exact", head: true })
-      .eq("role", "Pemimpin Kumpulan");
+    const { data, error } = await query.maybeSingle();
 
-    const { count: assistantLeaderCount } = await supabase
-      .from("system_users")
-      .select("*", { count: "exact", head: true })
-      .eq("role", "Penolong Pemimpin");
+    if (!error && data) {
+      setOfficialName(data.official_name || "");
+      setEnvironmentStatus(normalizeStatus(data.status));
+    }
+  }
 
-    const { count: assistantCommissionerCount } = await supabase
-      .from("system_users")
-      .select("*", { count: "exact", head: true })
-      .eq("role", "Penolong Pesuruhjaya");
+async function fetchMembers() {
+  const { data, error } = await supabase
+    .from("members")
+    .select("*")
+    .is("deleted_at", null);
 
-    const { count: activitiesCount } = await supabase
-      .from("activities")
-      .select("*", { count: "exact", head: true })
-      .gte("activity_date", startMonth)
-      .lte("activity_date", endMonth);
+  if (error) {
+    console.error(error.message);
+    setMembers([]);
+    return;
+  }
 
-    const { data: membersData } = await supabase
-      .from("members")
-      .select("category, gender");
+  setMembers(data || []);
+}
 
-    const { data: groupsData } = await supabase
-      .from("groups")
-      .select("*")
-      .order("total_members", { ascending: false })
-      .limit(5);
+  async function fetchGroups() {
+    let query = supabase.from("groups").select("*").is("deleted_at", null);
+    query = applyDistrictScope(query);
 
-    const { data: auditData } = await supabase
+    const { data, error } = await query;
+
+    if (error) {
+      console.error(error.message);
+      setGroups([]);
+      return;
+    }
+
+    setGroups(data || []);
+  }
+
+  async function fetchUsers() {
+    let query = supabase.from("system_users").select("*").is("deleted_at", null);
+
+    if (districtEnvironmentId) {
+      query = query.eq("district_environment_id", districtEnvironmentId);
+    } else if (district) {
+      query = query.eq("district", district);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error(error.message);
+      setUsers([]);
+      return;
+    }
+
+    setUsers(data || []);
+  }
+
+async function fetchActivities() {
+  const { data, error } = await supabase
+    .from("activities")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error.message);
+    setActivities([]);
+    return;
+  }
+
+  setActivities(data || []);
+}
+
+  async function fetchAuditLogs() {
+    let query = supabase
       .from("audit_logs")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(5);
 
-    setTotalMembers(membersCount || 0);
-    setActiveMembers(activeMembersCount || 0);
-    setTotalGroups(groupsCount || 0);
-    setTotalUsers(usersCount || 0);
-    setLeadersCount(leaderCount || 0);
-    setAssistantLeadersCount(assistantLeaderCount || 0);
-    setAssistantCommissionersCount(assistantCommissionerCount || 0);
-    setMonthActivities(activitiesCount || 0);
-    setTopGroups(groupsData || []);
-    setRecentLogs(auditData || []);
+    if (districtEnvironmentId) {
+      query = query.eq("district_environment_id", districtEnvironmentId);
+    }
 
-    const total = membersData?.length || 0;
+    const { data, error } = await query;
 
-    const categories = [
-      { label: "Pengakap Kanak-Kanak", color: "success" },
-      { label: "Pengakap Muda", color: "primary" },
-      { label: "Pengakap Remaja", color: "warning" },
-      { label: "Pengakap Kelana", color: "danger" },
-    ];
+    if (error) {
+      console.error(error.message);
+      setAuditLogs([]);
+      return;
+    }
 
-    setCategoryStats(
-      categories.map((category) => {
-        const count =
-          membersData?.filter((member) => member.category === category.label)
-            .length || 0;
+    setAuditLogs(data || []);
+  }
 
-        return {
-          label: category.label,
-          value: count,
-          percent: total > 0 ? Math.round((count / total) * 100) : 0,
-          color: category.color,
-        };
+  const stats = useMemo(() => {
+    const activeMembers = members.filter((member) =>
+      isActive(member.status)
+    ).length;
+
+    const inactiveMembers = members.filter((member) =>
+      isInactive(member.status)
+    ).length;
+
+    const activeGroups = groups.filter((group) =>
+      isActive(group.status)
+    ).length;
+
+    const groupLeaders = users.filter(
+      (user) =>
+        normalizeRole(user.role) === "Pemimpin Kumpulan" &&
+        isActive(user.status)
+    ).length;
+
+    const assistantLeaders = users.filter(
+      (user) =>
+        normalizeRole(user.role) === "Penolong Pemimpin" &&
+        isActive(user.status)
+    ).length;
+
+    const assistantCommissioners = users.filter(
+      (user) =>
+        normalizeRole(user.role) === "Penolong Pesuruhjaya Daerah" &&
+        isActive(user.status)
+    ).length;
+
+    return {
+      activeMembers,
+      inactiveMembers,
+      totalMembers: members.length,
+      activeGroups,
+      totalGroups: groups.length,
+      groupLeaders,
+      assistantLeaders,
+      assistantCommissioners,
+    };
+  }, [members, groups, users]);
+
+  const membersByCategory = useMemo(() => {
+    const result: Record<string, number> = {};
+
+    members.forEach((member) => {
+      const category = getMemberCategory(member);
+      result[category] = (result[category] || 0) + 1;
+    });
+
+    return Object.entries(result)
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [members]);
+
+  const membersByGroup = useMemo(() => {
+    const result: Record<string, number> = {};
+
+    members.forEach((member) => {
+      const groupName = member.group_name || "Tanpa Kumpulan";
+      result[groupName] = (result[groupName] || 0) + 1;
+    });
+
+    return Object.entries(result)
+      .map(([groupName, count]) => ({ groupName, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+  }, [members]);
+
+  const upcomingActivities = useMemo(() => {
+    const now = new Date();
+
+    return activities
+      .filter((activity) => {
+        const dateValue = getActivityDate(activity);
+        if (!dateValue) return false;
+        return new Date(dateValue) >= now;
       })
+      .sort(
+        (a, b) =>
+          new Date(getActivityDate(a)).getTime() -
+          new Date(getActivityDate(b)).getTime()
+      )
+      .slice(0, 4);
+  }, [activities]);
+
+  const recentGroups = useMemo(() => {
+    return [...groups]
+      .sort(
+        (a, b) =>
+          new Date(b.created_at || "").getTime() -
+          new Date(a.created_at || "").getTime()
+      )
+      .slice(0, 4);
+  }, [groups]);
+
+  if (loading) {
+    return (
+      <DashboardLayout role="district">
+        <div className="text-center py-5">
+          <div className="spinner-border text-success"></div>
+          <p className="text-muted mt-3 mb-0">Memuatkan dashboard daerah...</p>
+        </div>
+      </DashboardLayout>
     );
-
-    const maleCount =
-      membersData?.filter((member) => member.gender === "Lelaki").length || 0;
-
-    const femaleCount =
-      membersData?.filter((member) => member.gender === "Perempuan").length || 0;
-
-    setGenderStats([
-      {
-        label: "Lelaki",
-        value: maleCount,
-        percent: total > 0 ? Math.round((maleCount / total) * 100) : 0,
-      },
-      {
-        label: "Perempuan",
-        value: femaleCount,
-        percent: total > 0 ? Math.round((femaleCount / total) * 100) : 0,
-      },
-    ]);
   }
 
   return (
     <DashboardLayout role="district">
-      <div className="d-flex justify-content-between align-items-start mb-4">
-        <div>
-          <h2 className="fw-bold mb-1">Papan Pemuka Daerah</h2>
-          <p className="text-muted mb-0">
-            Daerah Petaling, Selangor · Ringkasan operasi.
-          </p>
+      <div className="row g-4 mb-4">
+        <div className="col-lg-8">
+          <div
+            className="card border-0 shadow-sm rounded-4 overflow-hidden h-100"
+            style={{
+              background:
+                "linear-gradient(135deg, #198754 0%, #20c997 100%)",
+            }}
+          >
+            <div className="card-body p-4 text-white">
+              <div className="d-flex justify-content-between align-items-start gap-3">
+                <div>
+                  <span className="badge bg-white text-success mb-3">
+                    Dashboard Daerah
+                  </span>
+
+                  <h2 className="fw-bold mb-2">
+                    Selamat datang,{" "}
+                    {currentUser.full_name || currentUser.name || "Pengguna"}
+                  </h2>
+
+                  <p className="mb-1 opacity-75">
+                    {officialName || `Majlis Pengakap Daerah ${district || "-"}`}
+                  </p>
+
+                  <p className="mb-0 opacity-75">
+                    {district || "-"}
+                    {state ? `, ${state}` : ""}
+                  </p>
+                </div>
+
+                <div className="text-end">
+                  <div className="bg-white bg-opacity-25 rounded-4 p-3">
+                    <i className="bi bi-shield-check fs-1"></i>
+                  </div>
+                </div>
+              </div>
+
+              <div className="row g-3 mt-4">
+                <div className="col-6 col-md-3">
+                  <div className="bg-white bg-opacity-25 rounded-4 p-3">
+                    <div className="fw-bold fs-4">{stats.totalMembers}</div>
+                    <small className="opacity-75">Jumlah Ahli</small>
+                  </div>
+                </div>
+
+                <div className="col-6 col-md-3">
+                  <div className="bg-white bg-opacity-25 rounded-4 p-3">
+                    <div className="fw-bold fs-4">{stats.totalGroups}</div>
+                    <small className="opacity-75">Kumpulan</small>
+                  </div>
+                </div>
+
+                <div className="col-6 col-md-3">
+                  <div className="bg-white bg-opacity-25 rounded-4 p-3">
+                    <div className="fw-bold fs-4">{stats.groupLeaders}</div>
+                    <small className="opacity-75">Pemimpin</small>
+                  </div>
+                </div>
+
+                <div className="col-6 col-md-3">
+                  <div className="bg-white bg-opacity-25 rounded-4 p-3">
+                    <div className="fw-bold fs-4">
+                      {stats.assistantLeaders}
+                    </div>
+                    <small className="opacity-75">Penolong</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <button className="btn btn-outline-success" onClick={fetchDashboardStats}>
-          <i className="bi bi-arrow-clockwise me-1"></i>
-          Refresh
-        </button>
+        <div className="col-lg-4">
+          <div className="card border-0 shadow-sm rounded-4 h-100">
+            <div className="card-body p-4">
+              <div className="d-flex justify-content-between align-items-start mb-4">
+                <div>
+                  <h5 className="fw-bold mb-1">Status Environment</h5>
+                  <p className="text-muted small mb-0">Keadaan daerah semasa</p>
+                </div>
+
+                <span
+                  className={`badge px-3 py-2 ${
+                    environmentStatus === "Aktif"
+                      ? "bg-success"
+                      : "bg-warning text-dark"
+                  }`}
+                >
+                  {environmentStatus}
+                </span>
+              </div>
+
+              <div className="d-grid gap-2">
+                <a href="/district/users" className="btn btn-outline-success">
+                  <i className="bi bi-person-plus me-1"></i>
+                  Tambah Pengguna
+                </a>
+
+                <a href="/district/groups" className="btn btn-outline-success">
+                  <i className="bi bi-building-add me-1"></i>
+                  Urus Kumpulan
+                </a>
+
+                <a href="/district/members" className="btn btn-success">
+                  <i className="bi bi-people me-1"></i>
+                  Urus Ahli
+                </a>
+              </div>
+
+              <hr />
+
+              <div className="small text-muted">
+                <i className="bi bi-info-circle me-1"></i>
+                Semua statistik dipaparkan berdasarkan daerah anda sahaja.
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="row g-3">
-        <div className="col-md-6 col-xl">
+      <div className="row g-3 mb-4">
+        <div className="col-md-3">
           <StatCard
             title="Ahli Aktif"
-            value={activeMembers}
-            icon="bi-people"
-            color="primary"
+            value={stats.activeMembers}
+            subtitle={`${percentage(
+              stats.activeMembers,
+              stats.totalMembers
+            )}% daripada jumlah ahli`}
+            icon="bi-person-check"
+            colorClass="bg-success-subtle text-success"
           />
         </div>
 
-        <div className="col-md-6 col-xl">
+        <div className="col-md-3">
           <StatCard
-            title="Jumlah Kumpulan"
-            value={totalGroups}
-            icon="bi-mortarboard"
-            color="info"
+            title="Ahli Tidak Aktif"
+            value={stats.inactiveMembers}
+            subtitle="Rekod ahli inactive"
+            icon="bi-person-dash"
+            colorClass="bg-secondary-subtle text-secondary"
           />
         </div>
-        
-        <div className="col-md-6 col-xl">
+
+        <div className="col-md-3">
+          <StatCard
+            title="Kumpulan Aktif"
+            value={stats.activeGroups}
+            subtitle={`${stats.totalGroups} jumlah kumpulan`}
+            icon="bi-building"
+            colorClass="bg-primary-subtle text-primary"
+          />
+        </div>
+
+        <div className="col-md-3">
           <StatCard
             title="Penolong Pesuruhjaya"
-            value={assistantCommissionersCount}
-            icon="bi-shield-check"
-            color="danger"
+            value={stats.assistantCommissioners}
+            subtitle="Pegawai bantuan daerah"
+            icon="bi-person-badge"
+            colorClass="bg-info-subtle text-info"
           />
         </div>
-
-        <div className="col-md-6 col-xl">
-          <StatCard
-            title="Pemimpin"
-            value={leadersCount}
-            icon="bi-person-gear"
-            color="warning"
-          />
-        </div>
-
-        <div className="col-md-6 col-xl">
-          <StatCard
-            title="Penolong Pemimpin"
-            value={assistantLeadersCount}
-            icon="bi-person-plus"
-            color="success"
-          />
-        </div>
-
-
       </div>
 
-      <div className="row g-4 mt-2">
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm h-100">
-            <div className="card-header bg-white fw-semibold">
-              Taburan Ahli Mengikut Kategori
-            </div>
-
-            <div className="card-body">
-              {categoryStats.map((item) => (
-                <div className="mb-3" key={item.label}>
-                  <div className="d-flex justify-content-between small mb-1">
-                    <span>{item.label}</span>
-                    <span>
-                      {item.value} ahli ({item.percent}%)
-                    </span>
-                  </div>
-
-                  <div className="progress rounded-pill" style={{ height: 9 }}>
-                    <div
-                      className={`progress-bar bg-${item.color}`}
-                      style={{ width: `${item.percent}%` }}
-                    />
-                  </div>
+      <div className="row g-4">
+        <div className="col-lg-7">
+          <div className="card border-0 shadow-sm rounded-4 h-100">
+            <div className="card-body p-4">
+              <div className="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                  <h5 className="fw-bold mb-1">Pecahan Ahli Mengikut Kategori</h5>
+                  <p className="text-muted small mb-0">
+                    Ringkasan kategori ahli Pengakap.
+                  </p>
                 </div>
-              ))}
 
-              {totalMembers === 0 && (
-                <p className="text-muted small mb-0">
-                  Tiada data ahli lagi.
-                </p>
+                <span className="badge bg-success-subtle text-success">
+                  {stats.totalMembers} ahli
+                </span>
+              </div>
+
+              {membersByCategory.length === 0 ? (
+                <div className="text-center text-muted py-5">
+                  <i className="bi bi-pie-chart fs-1 d-block mb-2"></i>
+                  Tiada data kategori ahli.
+                </div>
+              ) : (
+                <div className="d-grid gap-3">
+                  {membersByCategory.map((item, index) => (
+                    <div key={item.category}>
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <div className="d-flex align-items-center gap-2">
+                          <span
+                            className={`rounded-circle d-inline-block ${softBg(
+                              index
+                            )}`}
+                            style={{ width: 10, height: 10 }}
+                          ></span>
+                          <span className="fw-semibold small">
+                            {item.category}
+                          </span>
+                        </div>
+
+                        <div className="small text-muted">
+                          <strong>{item.count}</strong>{" "}
+                          ({percentage(item.count, stats.totalMembers)}%)
+                        </div>
+                      </div>
+
+                      <div className="progress" style={{ height: 9 }}>
+                        <div
+                          className="progress-bar bg-success"
+                          style={{
+                            width: `${percentage(
+                              item.count,
+                              stats.totalMembers
+                            )}%`,
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>
         </div>
 
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm h-100">
-            <div className="card-header bg-white fw-semibold">
-              Taburan Jantina
-            </div>
+        <div className="col-lg-5">
+          <div className="card border-0 shadow-sm rounded-4 h-100">
+            <div className="card-body p-4">
+              <h5 className="fw-bold mb-1">Ahli Mengikut Kumpulan</h5>
+              <p className="text-muted small mb-4">
+                Kumpulan dengan jumlah ahli tertinggi.
+              </p>
 
-            <div className="card-body">
-              <div className="d-flex justify-content-center align-items-center mb-3">
-                <div
-                  className="rounded-circle border d-flex flex-column align-items-center justify-content-center"
-                  style={{
-                    width: 150,
-                    height: 150,
-                    background:
-                      "conic-gradient(#0d6efd 0deg, #0d6efd " +
-                      genderStats[0].percent * 3.6 +
-                      "deg, #d63384 " +
-                      genderStats[0].percent * 3.6 +
-                      "deg, #d63384 360deg)",
-                  }}
-                >
-                  <div className="bg-white rounded-circle d-flex flex-column align-items-center justify-content-center"
-                    style={{ width: 95, height: 95 }}
-                  >
-                    <strong>{totalMembers}</strong>
-                    <small className="text-muted">Ahli</small>
-                  </div>
+              {membersByGroup.length === 0 ? (
+                <div className="text-center text-muted py-5">
+                  <i className="bi bi-building fs-1 d-block mb-2"></i>
+                  Tiada data kumpulan ahli.
                 </div>
-              </div>
-
-              {genderStats.map((item, index) => (
-                <div
-                  key={item.label}
-                  className="d-flex justify-content-between align-items-center border-bottom py-2"
-                >
-                  <div>
-                    <span
-                      className={`badge rounded-circle me-2 ${
-                        index === 0 ? "bg-primary" : "bg-danger"
-                      }`}
-                    >
-                      &nbsp;
-                    </span>
-                    {item.label}
-                  </div>
-                  <strong>
-                    {item.value} ({item.percent}%)
-                  </strong>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm h-100">
-            <div className="card-header bg-white fw-semibold">Notifikasi</div>
-
-            <div className="card-body">
-              <div className="d-flex align-items-start gap-2 border-bottom pb-3 mb-3">
-                <span className="bg-info rounded-circle mt-2" style={{ width: 8, height: 8 }}></span>
-                <div>
-                  <div className="small fw-semibold">
-                    {totalUsers} pengguna sistem berdaftar
-                  </div>
-                  <small className="text-muted">Dikemaskini hari ini</small>
-                </div>
-              </div>
-
-              <div className="d-flex align-items-start gap-2 border-bottom pb-3 mb-3">
-                <span className="bg-warning rounded-circle mt-2" style={{ width: 8, height: 8 }}></span>
-                <div>
-                  <div className="small fw-semibold">
-                    {monthActivities} aktiviti bulan ini
-                  </div>
-                  <small className="text-muted">Daripada jadual aktiviti</small>
-                </div>
-              </div>
-
-              <div className="d-flex align-items-start gap-2 border-bottom pb-3 mb-3">
-                <span className="bg-success rounded-circle mt-2" style={{ width: 8, height: 8 }}></span>
-                <div>
-                  <div className="small fw-semibold">
-                    {activeMembers} ahli aktif direkodkan
-                  </div>
-                  <small className="text-muted">Berdasarkan status ahli</small>
-                </div>
-              </div>
-
-              <div className="d-flex align-items-start gap-2">
-                <span className="bg-danger rounded-circle mt-2" style={{ width: 8, height: 8 }}></span>
-                <div>
-                  <div className="small fw-semibold">
-                    {topGroups.filter((g) => !g.leader_name).length} kumpulan tiada pemimpin
-                  </div>
-                  <small className="text-muted">Perlu semakan daerah</small>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="card border-0 shadow-sm mt-4">
-        <div className="card-header bg-white fw-semibold">
-          Kumpulan Terbesar di Daerah
-        </div>
-
-        <div className="card-body table-responsive">
-          <table className="table table-hover align-middle mb-0">
-            <thead>
-              <tr>
-                <th>Kumpulan</th>
-                <th>Sekolah</th>
-                <th>Pemimpin</th>
-                <th className="text-end">Bil. Ahli</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {topGroups.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="text-center text-muted py-4">
-                    Tiada kumpulan direkodkan.
-                  </td>
-                </tr>
               ) : (
-                topGroups.map((group) => (
-                  <tr key={group.id}>
-                    <td className="fw-semibold">{group.group_name}</td>
-                    <td className="text-muted">{group.school_name}</td>
-                    <td>{group.leader_name || "—"}</td>
-                    <td className="text-end fw-semibold">
-                      {group.total_members || 0}
-                    </td>
-                    <td>
+                <div className="d-grid gap-3">
+                  {membersByGroup.map((item, index) => (
+                    <div
+                      key={item.groupName}
+                      className="d-flex align-items-center gap-3"
+                    >
+                      <div
+                        className={`rounded-4 d-flex align-items-center justify-content-center fw-bold ${softBg(
+                          index
+                        )}`}
+                        style={{ width: 42, height: 42 }}
+                      >
+                        {index + 1}
+                      </div>
+
+                      <div className="flex-grow-1">
+                        <div className="d-flex justify-content-between">
+                          <span className="fw-semibold small">
+                            {item.groupName}
+                          </span>
+                          <span className="small text-muted">
+                            {item.count} ahli
+                          </span>
+                        </div>
+
+                        <div className="progress mt-2" style={{ height: 7 }}>
+                          <div
+                            className="progress-bar bg-success"
+                            style={{
+                              width: `${percentage(
+                                item.count,
+                                stats.totalMembers
+                              )}%`,
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="col-lg-6">
+          <div className="card border-0 shadow-sm rounded-4 h-100">
+            <div className="card-body p-4">
+              <div className="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                  <h5 className="fw-bold mb-1">Aktiviti Akan Datang</h5>
+                  <p className="text-muted small mb-0">
+                    Aktiviti terdekat dalam daerah.
+                  </p>
+                </div>
+
+                <a
+                  href="/district/activities"
+                  className="btn btn-sm btn-outline-success"
+                >
+                  Lihat Semua
+                </a>
+              </div>
+
+              {upcomingActivities.length === 0 ? (
+                <div className="text-center text-muted py-5">
+                  <i className="bi bi-calendar-event fs-1 d-block mb-2"></i>
+                  Tiada aktiviti akan datang.
+                </div>
+              ) : (
+                <div className="d-grid gap-3">
+                  {upcomingActivities.map((activity) => (
+                    <div
+                      key={activity.id}
+                      className="d-flex align-items-center gap-3 border rounded-4 p-3"
+                    >
+                      <div
+                        className="rounded-4 bg-success-subtle text-success d-flex align-items-center justify-content-center"
+                        style={{ width: 46, height: 46 }}
+                      >
+                        <i className="bi bi-calendar-check fs-5"></i>
+                      </div>
+
+                      <div className="flex-grow-1">
+                        <div className="fw-semibold">
+                          {getActivityName(activity)}
+                        </div>
+                        <small className="text-muted">
+                          {activity.group_name || "Semua kumpulan"}
+                        </small>
+                      </div>
+
+                      <div className="text-end small">
+                        <strong>{formatDate(getActivityDate(activity))}</strong>
+                        <div className="text-muted">
+                          {activity.status || "Akan Datang"}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="col-lg-6">
+          <div className="card border-0 shadow-sm rounded-4 h-100">
+            <div className="card-body p-4">
+              <div className="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                  <h5 className="fw-bold mb-1">Kumpulan Terkini</h5>
+                  <p className="text-muted small mb-0">
+                    Senarai kumpulan / sekolah terbaru.
+                  </p>
+                </div>
+
+                <a
+                  href="/district/groups"
+                  className="btn btn-sm btn-outline-success"
+                >
+                  Lihat Semua
+                </a>
+              </div>
+
+              {recentGroups.length === 0 ? (
+                <div className="text-center text-muted py-5">
+                  <i className="bi bi-building fs-1 d-block mb-2"></i>
+                  Tiada kumpulan direkodkan.
+                </div>
+              ) : (
+                <div className="d-grid gap-3">
+                  {recentGroups.map((group) => (
+                    <div
+                      key={group.id}
+                      className="d-flex align-items-center gap-3 border rounded-4 p-3"
+                    >
+                      <div
+                        className="rounded-4 bg-primary-subtle text-primary d-flex align-items-center justify-content-center"
+                        style={{ width: 46, height: 46 }}
+                      >
+                        <i className="bi bi-building fs-5"></i>
+                      </div>
+
+                      <div className="flex-grow-1">
+                        <div className="fw-semibold">
+                          {group.group_name || "-"}
+                        </div>
+                        <small className="text-muted">
+                          {group.school_name || "Tiada sekolah"}
+                        </small>
+                      </div>
+
                       <span
                         className={`badge ${
-                          group.status === "Aktif"
-                            ? "bg-success-subtle text-success"
-                            : "bg-warning-subtle text-warning"
+                          isActive(group.status)
+                            ? "bg-success"
+                            : "bg-secondary"
                         }`}
                       >
-                        {group.status === "Aktif" ? "Aktif" : "Perlu Semakan"}
+                        {normalizeStatus(group.status)}
                       </span>
-                    </td>
-                  </tr>
-                ))
+                    </div>
+                  ))}
+                </div>
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="card border-0 shadow-sm mt-4">
-        <div className="card-header bg-white fw-semibold">
-          Aktiviti Sistem Terkini
+            </div>
+          </div>
         </div>
 
-        <div className="card-body">
-          {recentLogs.length === 0 ? (
-            <p className="text-muted mb-0">Tiada aktiviti sistem terkini.</p>
-          ) : (
-            recentLogs.map((log) => (
-              <div
-                className="d-flex align-items-start gap-3 border-bottom py-2"
-                key={log.id}
-              >
-                <div className="bg-success-subtle text-success rounded-circle px-2 py-1">
-                  <i className="bi bi-clock-history"></i>
-                </div>
-
+        <div className="col-12">
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-body p-4">
+              <div className="d-flex justify-content-between align-items-center mb-4">
                 <div>
-                  <div className="fw-semibold">
-                    {log.description || log.action}
-                  </div>
-                  <small className="text-muted">
-                    {log.actor_name || "-"} •{" "}
-                    {new Date(log.created_at).toLocaleString()}
-                  </small>
+                  <h5 className="fw-bold mb-1">Aktiviti Sistem Terkini</h5>
+                  <p className="text-muted small mb-0">
+                    Rekod tindakan penting dalam daerah.
+                  </p>
                 </div>
+
+                <a
+                  href="/district/audit-log"
+                  className="btn btn-sm btn-outline-success"
+                >
+                  Lihat Audit Log
+                </a>
               </div>
-            ))
-          )}
+
+              {auditLogs.length === 0 ? (
+                <div className="text-center text-muted py-5">
+                  <i className="bi bi-journal-text fs-1 d-block mb-2"></i>
+                  Tiada audit log terkini.
+                </div>
+              ) : (
+                <div className="table-responsive">
+                  <table className="table table-hover align-middle mb-0">
+                    <thead className="table-light">
+                      <tr>
+                        <th>Tindakan</th>
+                        <th>Pengguna</th>
+                        <th>Module</th>
+                        <th>Masa</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {auditLogs.map((log) => (
+                        <tr key={log.id}>
+                          <td>
+                            <div className="fw-semibold">
+                              {log.description || log.action || "-"}
+                            </div>
+                          </td>
+
+                          <td className="text-muted">
+                            {log.actor_name || "-"}
+                          </td>
+
+                          <td>
+                            <span className="badge bg-light text-muted">
+                              {log.module || "-"}
+                            </span>
+                          </td>
+
+                          <td className="text-muted text-nowrap">
+                            {formatDateTime(log.created_at)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </DashboardLayout>

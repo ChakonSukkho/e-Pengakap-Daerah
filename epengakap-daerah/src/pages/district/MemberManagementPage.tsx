@@ -20,14 +20,20 @@ type Member = {
   address: string | null;
   notes: string | null;
   status: string;
+  district: string | null;
+  district_environment_id: string | null;
   created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
 };
 
 type ScoutGroup = {
   id: string;
   group_name: string;
-  school_name: string;
+  school_name: string | null;
   status?: string;
+  district?: string | null;
+  district_environment_id?: string | null;
 };
 
 type MemberForm = {
@@ -47,6 +53,28 @@ type MemberForm = {
   status: string;
 };
 
+const CATEGORY_OPTIONS = [
+  "Pengakap Kanak-Kanak",
+  "Pengakap Muda",
+  "Pengakap Remaja",
+  "Pengakap Kelana",
+];
+
+const STATUS_OPTIONS = ["Aktif", "Tidak Aktif"];
+const GENDER_OPTIONS = ["Lelaki", "Perempuan"];
+
+function getCurrentUser() {
+  try {
+    return JSON.parse(
+      localStorage.getItem("user") ||
+        localStorage.getItem("auth_user") ||
+        "{}"
+    );
+  } catch {
+    return {};
+  }
+}
+
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -55,6 +83,15 @@ function getInitials(name: string) {
     .map((word) => word[0])
     .join("")
     .toUpperCase();
+}
+
+function normalizeStatus(status?: string | null) {
+  const value = String(status || "").trim().toLowerCase();
+
+  if (value === "active" || value === "aktif") return "Aktif";
+  if (value === "inactive" || value === "tidak aktif") return "Tidak Aktif";
+
+  return status || "Aktif";
 }
 
 function normalizeMalaysianIC(value: string) {
@@ -75,31 +112,93 @@ function isValidMalaysianIC(value: string) {
 
   if (digits.length !== 12) return false;
 
-  const yy = Number(digits.slice(0, 2));
-  const mm = Number(digits.slice(2, 4));
-  const dd = Number(digits.slice(4, 6));
+  const month = Number(digits.slice(2, 4));
+  const day = Number(digits.slice(4, 6));
 
-  if (Number.isNaN(yy) || Number.isNaN(mm) || Number.isNaN(dd)) return false;
-  if (mm < 1 || mm > 12) return false;
-  if (dd < 1 || dd > 31) return false;
+  if (Number.isNaN(month) || Number.isNaN(day)) return false;
+  if (month < 1 || month > 12) return false;
+  if (day < 1 || day > 31) return false;
 
   return true;
 }
 
-async function addAuditLog(action: string, description: string) {
-  const currentUser = JSON.parse(
-    localStorage.getItem("user") ||
-      localStorage.getItem("auth_user") ||
-      "{}"
-  );
+function displayMalaysianIC(value?: string | null) {
+  if (!value) return "-";
+  return formatMalaysianIC(value);
+}
 
-  await supabase.from("audit_logs").insert({
-    actor_name: currentUser.full_name || currentUser.name || "Unknown User",
-    actor_role: currentUser.role || "Unknown Role",
-    action,
-    module: "Ahli Pengakap",
-    description,
-  });
+function normalizeMalaysianPhone(value: string) {
+  return value.replace(/\D/g, "").slice(0, 11);
+}
+
+function formatMalaysianPhone(value: string) {
+  const digits = normalizeMalaysianPhone(value);
+
+  if (!digits) return "";
+
+  // Landline: 03-1234 5678
+  if (digits.startsWith("03")) {
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+    return `${digits.slice(0, 2)}-${digits.slice(2, 6)} ${digits.slice(6)}`;
+  }
+
+  // Mobile 011: 011-2345 6789
+  if (digits.startsWith("011")) {
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+    return `${digits.slice(0, 3)}-${digits.slice(3, 7)} ${digits.slice(7)}`;
+  }
+
+  // Normal mobile: 012-345 6789
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)} ${digits.slice(6)}`;
+}
+
+function isValidMalaysianPhone(value: string) {
+  const digits = normalizeMalaysianPhone(value);
+
+  if (!digits) return false;
+  if (!digits.startsWith("0")) return false;
+
+  return digits.length >= 9 && digits.length <= 11;
+}
+
+function displayMalaysianPhone(value?: string | null) {
+  if (!value) return "-";
+  return formatMalaysianPhone(value);
+}
+
+function isValidEmail(email: string) {
+  if (!email.trim()) return true;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+async function addAuditLog(
+  action: string,
+  description: string,
+  recordId?: string | null
+) {
+  try {
+    const currentUser = getCurrentUser();
+
+    await supabase.from("audit_logs").insert({
+      actor_name: currentUser.full_name || currentUser.name || "Unknown User",
+      actor_role: currentUser.role || "Unknown Role",
+      action,
+      module: "Ahli Pengakap",
+      description,
+      user_id: currentUser.id || null,
+      district_environment_id: currentUser.district_environment_id || null,
+      record_id: recordId || null,
+      ip_address: null,
+      user_agent: navigator.userAgent,
+    });
+  } catch {
+    // Jangan block proses utama kalau audit log gagal.
+  }
 }
 
 export default function MemberManagementPage() {
@@ -123,6 +222,7 @@ export default function MemberManagementPage() {
   const [categoryFilter, setCategoryFilter] = useState("Semua Kategori");
   const [statusFilter, setStatusFilter] = useState("Semua Status");
   const [genderFilter, setGenderFilter] = useState("Semua Jantina");
+  const [phoneFilter, setPhoneFilter] = useState("");
 
   const [form, setForm] = useState<MemberForm>({
     ic_number: "",
@@ -141,6 +241,14 @@ export default function MemberManagementPage() {
     status: "Aktif",
   });
 
+  const currentUser = useMemo(() => getCurrentUser(), []);
+  const districtEnvironmentId = currentUser.district_environment_id || null;
+  const district =
+    currentUser.district ||
+    currentUser.district_name ||
+    currentUser.daerah ||
+    null;
+
   useEffect(() => {
     fetchMembers();
     fetchGroups();
@@ -149,14 +257,23 @@ export default function MemberManagementPage() {
   async function fetchMembers() {
     setLoading(true);
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("members")
       .select("*")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
+    if (districtEnvironmentId) {
+      query = query.eq("district_environment_id", districtEnvironmentId);
+    } else if (district) {
+      query = query.eq("district", district);
+    }
+
+    const { data, error } = await query;
+
     if (error) {
       alert(error.message);
+      setMembers([]);
       setLoading(false);
       return;
     }
@@ -166,52 +283,93 @@ export default function MemberManagementPage() {
   }
 
   async function fetchGroups() {
-    const { data, error } = await supabase
+    let query = supabase
       .from("groups")
-      .select("id, group_name, school_name, status")
-      .in("status", ["Aktif", "active"])
+      .select("id, group_name, school_name, status, district, district_environment_id")
       .order("group_name", { ascending: true });
+
+    if (districtEnvironmentId) {
+      query = query.eq("district_environment_id", districtEnvironmentId);
+    } else if (district) {
+      query = query.eq("district", district);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       alert(error.message);
+      setGroups([]);
       return;
     }
 
-    setGroups(data || []);
+    const activeGroups = (data || []).filter(
+      (group) => normalizeStatus(group.status) === "Aktif"
+    );
+
+    setGroups(activeGroups);
   }
 
   const filteredMembers = useMemo(() => {
-    const keyword = search.toLowerCase();
+    const keyword = search.toLowerCase().trim();
+    const cleanKeyword = search.replace(/\D/g, "");
+    const cleanPhoneFilter = phoneFilter.replace(/\D/g, "");
 
     return members.filter((member) => {
+      const memberStatus = normalizeStatus(member.status);
+      const memberCategory = member.category || member.scout_category || "";
+      const formattedIC = formatMalaysianIC(member.ic_number || "");
+      const formattedPhone = formatMalaysianPhone(member.guardian_phone || "");
+
       const matchSearch =
+        !keyword ||
         (member.full_name || "").toLowerCase().includes(keyword) ||
         (member.email || "").toLowerCase().includes(keyword) ||
-        (member.ic_number || "").toLowerCase().includes(keyword) ||
-        (member.group_name || "").toLowerCase().includes(keyword);
+        (member.guardian_email || "").toLowerCase().includes(keyword) ||
+        (member.group_name || "").toLowerCase().includes(keyword) ||
+        (member.ic_number || "").includes(cleanKeyword) ||
+        formattedIC.toLowerCase().includes(keyword) ||
+        (member.guardian_phone || "").includes(cleanKeyword) ||
+        formattedPhone.toLowerCase().includes(keyword);
+
+      const matchPhone =
+        !cleanPhoneFilter ||
+        (member.guardian_phone || "").includes(cleanPhoneFilter) ||
+        formattedPhone.replace(/\D/g, "").includes(cleanPhoneFilter);
 
       const matchGroup =
         groupFilter === "Semua Kumpulan" || member.group_name === groupFilter;
 
       const matchCategory =
-        categoryFilter === "Semua Kategori" ||
-        member.category === categoryFilter ||
-        member.scout_category === categoryFilter;
+        categoryFilter === "Semua Kategori" || memberCategory === categoryFilter;
 
       const matchStatus =
-        statusFilter === "Semua Status" || member.status === statusFilter;
+        statusFilter === "Semua Status" || memberStatus === statusFilter;
 
       const matchGender =
         genderFilter === "Semua Jantina" || member.gender === genderFilter;
 
       return (
-        matchSearch && matchGroup && matchCategory && matchStatus && matchGender
+        matchSearch &&
+        matchPhone &&
+        matchGroup &&
+        matchCategory &&
+        matchStatus &&
+        matchGender
       );
     });
-  }, [members, search, groupFilter, categoryFilter, statusFilter, genderFilter]);
+  }, [
+    members,
+    search,
+    phoneFilter,
+    groupFilter,
+    categoryFilter,
+    statusFilter,
+    genderFilter,
+  ]);
 
   function resetForm() {
     setEditingMember(null);
+
     setForm({
       ic_number: "",
       full_name: "",
@@ -244,20 +402,20 @@ export default function MemberManagementPage() {
     setEditingMember(member);
 
     setForm({
-      ic_number: member.ic_number || "",
+      ic_number: formatMalaysianIC(member.ic_number || ""),
       full_name: member.full_name || "",
       email: member.email || "",
       group_id: member.group_id || "",
       group_name: member.group_name || "",
       category: member.category || member.scout_category || "Pengakap Kanak-Kanak",
-      age: String(member.age || ""),
+      age: member.age ? String(member.age) : "",
       gender: member.gender || "Lelaki",
       guardian_name: member.guardian_name || "",
-      guardian_phone: member.guardian_phone || "",
+      guardian_phone: formatMalaysianPhone(member.guardian_phone || ""),
       guardian_email: member.guardian_email || "",
       address: member.address || "",
       notes: member.notes || "",
-      status: member.status || "Aktif",
+      status: normalizeStatus(member.status),
     });
 
     setShowMemberModal(true);
@@ -294,43 +452,72 @@ export default function MemberManagementPage() {
     return (data || []).length > 0;
   }
 
-  function displayMalaysianIC(value?: string | null) {
-    if (!value) return "-";
-    return formatMalaysianIC(value);
-  }
-
-  async function saveMember() {
+  function validateForm() {
     if (!form.ic_number.trim()) {
       alert("Sila isi No IC / MyKid.");
-      return;
+      return false;
     }
 
     if (!isValidMalaysianIC(form.ic_number)) {
-      alert("No IC / MyKid tidak sah. Sila guna format 12 digit seperti 030101-03-1234.");
-      return;
+      alert(
+        "No IC / MyKid tidak sah. Sila guna format 12 digit seperti 030101-03-1234."
+      );
+      return false;
     }
 
     if (!form.full_name.trim()) {
       alert("Sila isi nama penuh ahli.");
-      return;
+      return false;
+    }
+
+    if (form.email && !isValidEmail(form.email)) {
+      alert("Format e-mel ahli tidak sah.");
+      return false;
     }
 
     if (!form.group_id) {
       alert("Sila pilih kumpulan / sekolah.");
-      return;
+      return false;
     }
 
-    if (!form.age || Number(form.age) <= 0) {
+    const ageNumber = Number(form.age);
+
+    if (!form.age || Number.isNaN(ageNumber) || ageNumber <= 0 || ageNumber > 100) {
       alert("Umur tidak sah.");
-      return;
+      return false;
     }
+
+    if (!form.guardian_name.trim()) {
+      alert("Sila isi nama penjaga.");
+      return false;
+    }
+
+    if (!form.guardian_phone.trim()) {
+      alert("Sila isi nombor telefon penjaga.");
+      return false;
+    }
+
+    if (!isValidMalaysianPhone(form.guardian_phone)) {
+      alert(
+        "Nombor telefon penjaga tidak sah. Sila masukkan nombor Malaysia yang bermula dengan 0. Contoh: 012-345 6789."
+      );
+      return false;
+    }
+
+    if (form.guardian_email && !isValidEmail(form.guardian_email)) {
+      alert("Format e-mel penjaga tidak sah.");
+      return false;
+    }
+
+    return true;
+  }
+
+  async function saveMember() {
+    if (!validateForm()) return;
 
     setSaving(true);
 
-    const isDuplicateIC = await checkDuplicateIC(
-      form.ic_number,
-      editingMember?.id
-    );
+    const isDuplicateIC = await checkDuplicateIC(form.ic_number, editingMember?.id);
 
     if (isDuplicateIC) {
       alert("No IC / MyKid ini sudah wujud dalam sistem.");
@@ -338,22 +525,26 @@ export default function MemberManagementPage() {
       return;
     }
 
+    const selectedGroup = groups.find((group) => group.id === form.group_id);
+
     const payload = {
       ic_number: normalizeMalaysianIC(form.ic_number),
       full_name: form.full_name.trim(),
       email: form.email.trim() || null,
       group_id: form.group_id,
-      group_name: form.group_name,
+      group_name: selectedGroup?.group_name || form.group_name,
       category: form.category,
       scout_category: form.category,
       age: Number(form.age),
       gender: form.gender,
       guardian_name: form.guardian_name.trim() || null,
-      guardian_phone: form.guardian_phone.trim() || null,
+      guardian_phone: normalizeMalaysianPhone(form.guardian_phone) || null,
       guardian_email: form.guardian_email.trim() || null,
       address: form.address.trim() || null,
       notes: form.notes.trim() || null,
       status: form.status,
+      district: district || null,
+      district_environment_id: districtEnvironmentId || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -369,9 +560,20 @@ export default function MemberManagementPage() {
         return;
       }
 
-      await addAuditLog("UPDATE", `Kemaskini ahli ${form.full_name}`);
+      await addAuditLog(
+        "UPDATE",
+        `Kemaskini ahli Pengakap: ${form.full_name}`,
+        editingMember.id
+      );
     } else {
-      const { error } = await supabase.from("members").insert(payload);
+      const { data, error } = await supabase
+        .from("members")
+        .insert({
+          ...payload,
+          created_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
 
       if (error) {
         alert(error.message);
@@ -379,7 +581,11 @@ export default function MemberManagementPage() {
         return;
       }
 
-      await addAuditLog("CREATE", `Tambah ahli ${form.full_name}`);
+      await addAuditLog(
+        "CREATE",
+        `Tambah ahli Pengakap: ${form.full_name}`,
+        data?.id || null
+      );
     }
 
     await fetchMembers();
@@ -407,7 +613,11 @@ export default function MemberManagementPage() {
       return;
     }
 
-    await addAuditLog("DEACTIVATE", `Nyahaktif ahli ${deleteTarget.full_name}`);
+    await addAuditLog(
+      "DEACTIVATE",
+      `Nyahaktif ahli Pengakap: ${deleteTarget.full_name}`,
+      deleteTarget.id
+    );
 
     await fetchMembers();
     setShowDeleteModal(false);
@@ -435,14 +645,60 @@ export default function MemberManagementPage() {
             Import Fail
           </button>
 
-          <button
-            type="button"
-            className="btn btn-success"
-            onClick={openAddModal}
-          >
+          <button type="button" className="btn btn-success" onClick={openAddModal}>
             <i className="bi bi-plus-circle me-1"></i>
             Tambah Ahli
           </button>
+        </div>
+      </div>
+
+      <div className="row g-3 mb-4">
+        <div className="col-md-3">
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-body">
+              <small className="text-muted">Jumlah Ahli</small>
+              <h4 className="fw-bold mb-0">{members.length}</h4>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-md-3">
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-body">
+              <small className="text-muted">Aktif</small>
+              <h4 className="fw-bold text-success mb-0">
+                {
+                  members.filter(
+                    (member) => normalizeStatus(member.status) === "Aktif"
+                  ).length
+                }
+              </h4>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-md-3">
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-body">
+              <small className="text-muted">Tidak Aktif</small>
+              <h4 className="fw-bold text-secondary mb-0">
+                {
+                  members.filter(
+                    (member) => normalizeStatus(member.status) === "Tidak Aktif"
+                  ).length
+                }
+              </h4>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-md-3">
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-body">
+              <small className="text-muted">Kumpulan</small>
+              <h4 className="fw-bold mb-0">{groups.length}</h4>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -458,7 +714,17 @@ export default function MemberManagementPage() {
               />
             </div>
 
-            <div className="col-md-3">
+            <div className="col-md-2">
+              <input
+                className="form-control"
+                placeholder="Filter no tel..."
+                value={phoneFilter}
+                maxLength={13}
+                onChange={(e) => setPhoneFilter(formatMalaysianPhone(e.target.value))}
+              />
+            </div>
+
+            <div className="col-md-2">
               <select
                 className="form-select"
                 value={groupFilter}
@@ -467,7 +733,8 @@ export default function MemberManagementPage() {
                 <option>Semua Kumpulan</option>
                 {groups.map((group) => (
                   <option key={group.id} value={group.group_name}>
-                    {group.group_name} — {group.school_name}
+                    {group.group_name}
+                    {group.school_name ? ` — ${group.school_name}` : ""}
                   </option>
                 ))}
               </select>
@@ -480,10 +747,22 @@ export default function MemberManagementPage() {
                 onChange={(e) => setCategoryFilter(e.target.value)}
               >
                 <option>Semua Kategori</option>
-                <option>Pengakap Kanak-Kanak</option>
-                <option>Pengakap Muda</option>
-                <option>Pengakap Remaja</option>
-                <option>Pengakap Kelana</option>
+                {CATEGORY_OPTIONS.map((category) => (
+                  <option key={category}>{category}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="col-md-1">
+              <select
+                className="form-select"
+                value={genderFilter}
+                onChange={(e) => setGenderFilter(e.target.value)}
+              >
+                <option>Semua Jantina</option>
+                {GENDER_OPTIONS.map((gender) => (
+                  <option key={gender}>{gender}</option>
+                ))}
               </select>
             </div>
 
@@ -494,20 +773,9 @@ export default function MemberManagementPage() {
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
                 <option>Semua Status</option>
-                <option>Aktif</option>
-                <option>Tidak Aktif</option>
-              </select>
-            </div>
-
-            <div className="col-md-2">
-              <select
-                className="form-select"
-                value={genderFilter}
-                onChange={(e) => setGenderFilter(e.target.value)}
-              >
-                <option>Semua Jantina</option>
-                <option>Lelaki</option>
-                <option>Perempuan</option>
+                {STATUS_OPTIONS.map((status) => (
+                  <option key={status}>{status}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -525,6 +793,7 @@ export default function MemberManagementPage() {
                 <th>Kategori</th>
                 <th>Umur</th>
                 <th>Jantina</th>
+                <th>Telefon Penjaga</th>
                 <th>Status</th>
                 <th className="text-end">Tindakan</th>
               </tr>
@@ -533,14 +802,14 @@ export default function MemberManagementPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-5">
+                  <td colSpan={9} className="text-center py-5">
                     <div className="spinner-border text-success"></div>
                     <p className="text-muted mt-3 mb-0">Memuatkan data...</p>
                   </td>
                 </tr>
               ) : filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-5 text-muted">
+                  <td colSpan={9} className="text-center py-5 text-muted">
                     <i className="bi bi-inbox fs-1 d-block mb-2"></i>
                     Tiada ahli dijumpai.
                   </td>
@@ -556,11 +825,10 @@ export default function MemberManagementPage() {
                         >
                           {getInitials(member.full_name || "-")}
                         </div>
+
                         <div>
                           <div className="fw-semibold">{member.full_name}</div>
-                          <small className="text-muted">
-                            {member.email || "-"}
-                          </small>
+                          <small className="text-muted">{member.email || "-"}</small>
                         </div>
                       </div>
                     </td>
@@ -570,16 +838,17 @@ export default function MemberManagementPage() {
                     <td>{member.category || member.scout_category || "-"}</td>
                     <td>{member.age || "-"}</td>
                     <td>{member.gender || "-"}</td>
+                    <td>{displayMalaysianPhone(member.guardian_phone)}</td>
 
                     <td>
                       <span
                         className={`badge ${
-                          member.status === "Aktif"
+                          normalizeStatus(member.status) === "Aktif"
                             ? "bg-success"
                             : "bg-secondary"
                         }`}
                       >
-                        {member.status}
+                        {normalizeStatus(member.status)}
                       </span>
                     </td>
 
@@ -622,6 +891,7 @@ export default function MemberManagementPage() {
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
                 <h5 className="modal-title fw-bold">Maklumat Ahli</h5>
+
                 <button
                   type="button"
                   className="btn-close"
@@ -639,9 +909,7 @@ export default function MemberManagementPage() {
                   </div>
 
                   <h5 className="fw-bold mb-0">{selectedMember.full_name}</h5>
-                  <small className="text-muted">
-                    {selectedMember.email || "-"}
-                  </small>
+                  <small className="text-muted">{selectedMember.email || "-"}</small>
                 </div>
 
                 <div className="list-group list-group-flush">
@@ -681,20 +949,37 @@ export default function MemberManagementPage() {
 
                   <div className="list-group-item d-flex justify-content-between">
                     <span className="text-muted">Telefon Penjaga</span>
-                    <strong>{selectedMember.guardian_phone || "-"}</strong>
+                    <strong>
+                      {displayMalaysianPhone(selectedMember.guardian_phone)}
+                    </strong>
+                  </div>
+
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Email Penjaga</span>
+                    <strong>{selectedMember.guardian_email || "-"}</strong>
                   </div>
 
                   <div className="list-group-item d-flex justify-content-between">
                     <span className="text-muted">Status</span>
                     <span
                       className={`badge ${
-                        selectedMember.status === "Aktif"
+                        normalizeStatus(selectedMember.status) === "Aktif"
                           ? "bg-success"
                           : "bg-secondary"
                       }`}
                     >
-                      {selectedMember.status}
+                      {normalizeStatus(selectedMember.status)}
                     </span>
+                  </div>
+
+                  <div className="list-group-item">
+                    <span className="text-muted d-block mb-1">Alamat</span>
+                    <strong>{selectedMember.address || "-"}</strong>
+                  </div>
+
+                  <div className="list-group-item">
+                    <span className="text-muted d-block mb-1">Catatan</span>
+                    <strong>{selectedMember.notes || "-"}</strong>
                   </div>
                 </div>
               </div>
@@ -707,6 +992,17 @@ export default function MemberManagementPage() {
                 >
                   Tutup
                 </button>
+
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  onClick={() => {
+                    setShowViewModal(false);
+                    openEditModal(selectedMember);
+                  }}
+                >
+                  Edit Ahli
+                </button>
               </div>
             </div>
           </div>
@@ -715,7 +1011,7 @@ export default function MemberManagementPage() {
 
       {showMemberModal && (
         <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
-          <div className="modal-dialog modal-lg modal-dialog-centered">
+          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
                 <h5 className="modal-title fw-bold">
@@ -739,14 +1035,14 @@ export default function MemberManagementPage() {
                     <input
                       className="form-control"
                       value={form.ic_number}
-                      maxLength={14}
                       onChange={(e) =>
                         setForm({
                           ...form,
                           ic_number: formatMalaysianIC(e.target.value),
                         })
                       }
-                      placeholder="Contoh: 030101-03-1234"
+                      placeholder="030101-03-1234"
+                      maxLength={14}
                     />
 
                     <small className="text-muted">
@@ -800,7 +1096,8 @@ export default function MemberManagementPage() {
 
                       {groups.map((group) => (
                         <option key={group.id} value={group.id}>
-                          {group.group_name} — {group.school_name}
+                          {group.group_name}
+                          {group.school_name ? ` — ${group.school_name}` : ""}
                         </option>
                       ))}
                     </select>
@@ -815,10 +1112,9 @@ export default function MemberManagementPage() {
                         setForm({ ...form, category: e.target.value })
                       }
                     >
-                      <option>Pengakap Kanak-Kanak</option>
-                      <option>Pengakap Muda</option>
-                      <option>Pengakap Remaja</option>
-                      <option>Pengakap Kelana</option>
+                      {CATEGORY_OPTIONS.map((category) => (
+                        <option key={category}>{category}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -844,8 +1140,9 @@ export default function MemberManagementPage() {
                         setForm({ ...form, gender: e.target.value })
                       }
                     >
-                      <option>Lelaki</option>
-                      <option>Perempuan</option>
+                      {GENDER_OPTIONS.map((gender) => (
+                        <option key={gender}>{gender}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -867,10 +1164,17 @@ export default function MemberManagementPage() {
                       className="form-control"
                       value={form.guardian_phone}
                       onChange={(e) =>
-                        setForm({ ...form, guardian_phone: e.target.value })
+                        setForm({
+                          ...form,
+                          guardian_phone: formatMalaysianPhone(e.target.value),
+                        })
                       }
-                      placeholder="0123456789"
+                      placeholder="012-345 6789"
+                      maxLength={13}
                     />
+                    <small className="text-muted">
+                      Contoh: 012-345 6789 / 011-2345 6789 / 03-1234 5678
+                    </small>
                   </div>
 
                   <div className="col-md-6">
@@ -882,6 +1186,7 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, guardian_email: e.target.value })
                       }
+                      placeholder="penjaga@email.com"
                     />
                   </div>
 
@@ -894,8 +1199,9 @@ export default function MemberManagementPage() {
                         setForm({ ...form, status: e.target.value })
                       }
                     >
-                      <option>Aktif</option>
-                      <option>Tidak Aktif</option>
+                      {STATUS_OPTIONS.map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -961,9 +1267,7 @@ export default function MemberManagementPage() {
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
-                <h5 className="modal-title fw-bold text-danger">
-                  Nyahaktif Ahli
-                </h5>
+                <h5 className="modal-title fw-bold text-danger">Nyahaktif Ahli</h5>
 
                 <button
                   type="button"
@@ -979,10 +1283,11 @@ export default function MemberManagementPage() {
                 <p className="mb-1">
                   Adakah anda pasti mahu nyahaktif ahli ini?
                 </p>
+
                 <strong>{deleteTarget.full_name}</strong>
+
                 <p className="text-muted small mt-2 mb-0">
-                  Ahli tidak dipadam kekal. Status akan ditukar kepada Tidak
-                  Aktif.
+                  Ahli tidak dipadam kekal. Status akan ditukar kepada Tidak Aktif.
                 </p>
               </div>
 
