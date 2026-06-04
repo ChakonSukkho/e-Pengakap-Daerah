@@ -45,23 +45,44 @@ type DistrictRow = {
 };
 
 function getCurrentUser() {
-  return JSON.parse(
-    localStorage.getItem("user") ||
-      localStorage.getItem("auth_user") ||
-      "{}"
-  );
+  try {
+    return JSON.parse(
+      localStorage.getItem("user") ||
+        localStorage.getItem("auth_user") ||
+        "{}"
+    );
+  } catch {
+    return {};
+  }
 }
 
-async function addAuditLog(action: string, description: string) {
-  const currentUser = getCurrentUser();
+function isSuperAdminRole(role?: string | null) {
+  return String(role || "").trim() === "Super Admin";
+}
 
-  await supabase.from("audit_logs").insert({
-    actor_name: currentUser.full_name || currentUser.name || "Unknown User",
-    actor_role: currentUser.role || "Unknown Role",
-    action,
-    module: "Tetapan Daerah",
-    description,
-  });
+async function addAuditLog(
+  action: string,
+  description: string,
+  recordId?: string | null
+) {
+  try {
+    const currentUser = getCurrentUser();
+
+    await supabase.from("audit_logs").insert({
+      actor_name: currentUser.full_name || currentUser.name || "Unknown User",
+      actor_role: currentUser.role || "Unknown Role",
+      action,
+      module: "Tetapan Daerah",
+      description,
+      user_id: currentUser.id || null,
+      district_environment_id: currentUser.district_environment_id || null,
+      record_id: recordId || null,
+      ip_address: null,
+      user_agent: navigator.userAgent,
+    });
+  } catch {
+    // Jangan block proses utama kalau audit log gagal.
+  }
 }
 
 function isValidEmail(email: string) {
@@ -73,8 +94,10 @@ function normalizeStatus(status?: string | null) {
 
   if (value === "active" || value === "aktif") return "Aktif";
   if (value === "inactive" || value === "tidak aktif") return "Tidak Aktif";
+  if (value === "suspended" || value === "digantung") return "Digantung";
+  if (value === "pending") return "Pending";
 
-  return "Aktif";
+  return status || "Aktif";
 }
 
 function normalizeMalaysiaPhone(value: string) {
@@ -85,27 +108,24 @@ function formatMalaysiaPhone(value: string) {
   const digits = normalizeMalaysiaPhone(value);
 
   if (!digits) return "";
-  if (digits.length <= 2) return digits;
 
+  // Landline: 03-1234 5678
   if (digits.startsWith("03")) {
-    if (digits.length <= 6) {
-      return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-    }
-
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
     return `${digits.slice(0, 2)}-${digits.slice(2, 6)} ${digits.slice(6)}`;
   }
 
+  // Mobile 011: 011-2345 6789
   if (digits.startsWith("011")) {
-    if (digits.length <= 7) {
-      return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-    }
-
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
     return `${digits.slice(0, 3)}-${digits.slice(3, 7)} ${digits.slice(7)}`;
   }
 
-  if (digits.length <= 6) {
-    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  }
+  // Normal mobile: 012-345 6789
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
 
   return `${digits.slice(0, 3)}-${digits.slice(3, 6)} ${digits.slice(6)}`;
 }
@@ -113,6 +133,7 @@ function formatMalaysiaPhone(value: string) {
 function isValidMalaysiaPhone(value: string) {
   const digits = normalizeMalaysiaPhone(value);
 
+  if (!digits) return false;
   if (!digits.startsWith("0")) return false;
 
   return digits.length >= 9 && digits.length <= 11;
@@ -139,6 +160,7 @@ export default function DistrictSettingsPage() {
   const [uploading, setUploading] = useState(false);
 
   const currentUser = getCurrentUser();
+  const isSuperAdmin = isSuperAdminRole(currentUser.role);
   const loginEmail = currentUser.email || "-";
 
   const [form, setForm] = useState<DistrictSettingForm>({
@@ -208,22 +230,41 @@ export default function DistrictSettingsPage() {
     return districtList;
   }
 
-  async function fetchSettings(stateList: StateRow[] = states) {
-    const userDistrict =
+  function getUserDistrict() {
+    return (
       currentUser.district ||
       currentUser.district_name ||
       currentUser.daerah ||
-      "";
+      ""
+    );
+  }
 
-    const userState =
+  function getUserState() {
+    return (
       currentUser.state ||
       currentUser.state_name ||
       currentUser.negeri ||
-      "";
+      ""
+    );
+  }
+
+  async function fetchSettings(stateList: StateRow[] = states) {
+    const userDistrict = getUserDistrict();
+    const userState = getUserState();
 
     let query = supabase.from("district_settings").select("*").limit(1);
 
-    if (userDistrict) {
+    /**
+     * District role:
+     * - hanya boleh ambil settings daerah sendiri.
+     *
+     * Super Admin:
+     * - boleh guna page ini untuk view latest/selected setting.
+     * - Untuk full control banyak daerah, better guna SuperAdmin District Management.
+     */
+    if (!isSuperAdmin && userDistrict) {
+      query = query.eq("district", userDistrict);
+    } else if (isSuperAdmin && userDistrict) {
       query = query.eq("district", userDistrict);
     }
 
@@ -266,33 +307,35 @@ export default function DistrictSettingsPage() {
         setSelectedStateId(matchedState.id);
         await fetchDistrictsByState(matchedState.id);
       }
-    } else {
-      const defaultForm = {
-        state: userState || "",
-        district: userDistrict || "",
-        official_name: userDistrict
-          ? `Majlis Pengakap Daerah ${userDistrict}`
-          : "",
-        email: "",
-        phone: "",
-        commissioner: currentUser.full_name || currentUser.name || "",
-        address: "",
-        status: "Aktif",
-        profile_image_url: "",
-      };
 
-      setForm(defaultForm);
+      return;
+    }
 
-      const matchedState = stateList.find(
-        (item) =>
-          item.state_name.toLowerCase() ===
-          String(defaultForm.state).toLowerCase()
-      );
+    const defaultForm = {
+      state: userState || "",
+      district: userDistrict || "",
+      official_name: userDistrict
+        ? `Majlis Pengakap Daerah ${userDistrict}`
+        : "",
+      email: "",
+      phone: "",
+      commissioner: currentUser.full_name || currentUser.name || "",
+      address: "",
+      status: "Aktif",
+      profile_image_url: "",
+    };
 
-      if (matchedState) {
-        setSelectedStateId(matchedState.id);
-        await fetchDistrictsByState(matchedState.id);
-      }
+    setForm(defaultForm);
+
+    const matchedState = stateList.find(
+      (item) =>
+        item.state_name.toLowerCase() ===
+        String(defaultForm.state).toLowerCase()
+    );
+
+    if (matchedState) {
+      setSelectedStateId(matchedState.id);
+      await fetchDistrictsByState(matchedState.id);
     }
   }
 
@@ -334,28 +377,11 @@ export default function DistrictSettingsPage() {
       .getPublicUrl(fileName);
 
     const imageUrl = data.publicUrl;
-    
-    const savedUser = getCurrentUser();
 
-    const updatedUser = {
-      ...savedUser,
+    setForm((prev) => ({
+      ...prev,
       profile_image_url: imageUrl,
-    };
-    
-    localStorage.setItem("user", JSON.stringify(updatedUser));
-    localStorage.setItem("auth_user", JSON.stringify(updatedUser));
-    
-    window.dispatchEvent(new Event("userProfileUpdated"));
-
-    localStorage.setItem("user", JSON.stringify(updatedUser));
-    localStorage.setItem("auth_user", JSON.stringify(updatedUser));
-
-    window.dispatchEvent(new Event("userProfileUpdated"));
-
-    setForm({
-      ...form,
-      profile_image_url: imageUrl,
-    });
+    }));
 
     if (settingId) {
       const { error } = await supabase
@@ -374,70 +400,98 @@ export default function DistrictSettingsPage() {
 
       await addAuditLog(
         "UPDATE",
-        `Kemaskini gambar profil daerah ${form.district || ""}`
+        `Kemaskini gambar profil daerah ${form.district || ""}`,
+        settingId
       );
     }
+
+    const savedUser = getCurrentUser();
+
+    const updatedUser = {
+      ...savedUser,
+      profile_image_url: imageUrl,
+    };
+
+    localStorage.setItem("user", JSON.stringify(updatedUser));
+    localStorage.setItem("auth_user", JSON.stringify(updatedUser));
+    window.dispatchEvent(new Event("userProfileUpdated"));
 
     setUploading(false);
   }
 
-  async function saveSettings() {
+  function validateSettings() {
     if (!form.state.trim()) {
-      alert("Sila pilih negeri.");
-      return;
+      alert("Maklumat negeri tiada. Sila hubungi Super Admin.");
+      return false;
     }
 
     if (!form.district.trim()) {
-      alert("Sila pilih daerah.");
-      return;
+      alert("Maklumat daerah tiada. Sila hubungi Super Admin.");
+      return false;
     }
 
     if (!form.official_name.trim()) {
       alert("Sila isi nama rasmi daerah.");
-      return;
+      return false;
     }
 
     if (!form.email.trim()) {
-      alert("Sila isi e-mel rasmi.");
-      return;
+      alert("Sila isi e-mel rasmi daerah.");
+      return false;
     }
 
     if (!isValidEmail(form.email)) {
-      alert("Format e-mel rasmi tidak sah.");
-      return;
+      alert("Format e-mel rasmi daerah tidak sah.");
+      return false;
     }
 
     if (!form.phone.trim()) {
-      alert("Sila isi telefon rasmi.");
-      return;
+      alert("Sila isi telefon rasmi daerah.");
+      return false;
     }
 
     if (!isValidMalaysiaPhone(form.phone)) {
       alert(
-        "Nombor telefon rasmi tidak sah. Sila guna format Malaysia seperti 012-345 6789."
+        "Nombor telefon rasmi tidak sah. Sila masukkan nombor Malaysia yang bermula dengan 0. Contoh: 012-345 6789."
       );
-      return;
+      return false;
     }
 
     if (!form.commissioner.trim()) {
       alert("Sila isi nama Pesuruhjaya Daerah.");
-      return;
+      return false;
     }
+
+    return true;
+  }
+
+  async function saveSettings() {
+    if (!validateSettings()) return;
 
     setSaving(true);
 
-    const payload = {
-      state: form.state.trim(),
-      district: form.district.trim(),
+    /**
+     * District role:
+     * - Tidak boleh update state, district dan status environment.
+     *
+     * Super Admin:
+     * - Boleh update state, district dan status environment.
+     */
+    const payload: Record<string, any> = {
       official_name: form.official_name.trim(),
       email: form.email.trim(),
       phone: normalizeMalaysiaPhone(form.phone),
       commissioner: form.commissioner.trim(),
       address: form.address.trim() || null,
-      status: form.status,
       profile_image_url: form.profile_image_url || null,
       updated_at: new Date().toISOString(),
     };
+
+    if (isSuperAdmin || !settingId) {
+      payload.state = form.state.trim();
+      payload.district = form.district.trim();
+      payload.status = form.status;
+    }
 
     if (settingId) {
       const { error } = await supabase
@@ -451,11 +505,18 @@ export default function DistrictSettingsPage() {
         return;
       }
 
-      await addAuditLog("UPDATE", `Kemaskini tetapan daerah ${form.district}`);
+      await addAuditLog(
+        "UPDATE",
+        `Kemaskini tetapan daerah ${form.district}`,
+        settingId
+      );
     } else {
       const { data, error } = await supabase
         .from("district_settings")
-        .insert(payload)
+        .insert({
+          ...payload,
+          created_at: new Date().toISOString(),
+        })
         .select()
         .single();
 
@@ -467,28 +528,32 @@ export default function DistrictSettingsPage() {
 
       setSettingId(data.id);
 
-      await addAuditLog("CREATE", `Tambah tetapan daerah ${form.district}`);
+      await addAuditLog(
+        "CREATE",
+        `Tambah tetapan daerah ${form.district}`,
+        data.id
+      );
     }
-
-    setSaving(false);
-    alert("Tetapan daerah berjaya disimpan.");
 
     const savedUser = getCurrentUser();
 
     const updatedUser = {
       ...savedUser,
-      name: form.commissioner,
-      full_name: form.commissioner,
+      name: savedUser.name,
+      full_name: savedUser.full_name,
       email: savedUser.email,
       profile_image_url: form.profile_image_url,
-      district: form.district,
-      state: form.state,
+      district: isSuperAdmin ? form.district : savedUser.district,
+      state: isSuperAdmin ? form.state : savedUser.state,
     };
 
     localStorage.setItem("user", JSON.stringify(updatedUser));
     localStorage.setItem("auth_user", JSON.stringify(updatedUser));
-
     window.dispatchEvent(new Event("userProfileUpdated"));
+
+    setSaving(false);
+    alert("Tetapan daerah berjaya disimpan.");
+
     await loadPage();
   }
 
@@ -509,7 +574,8 @@ export default function DistrictSettingsPage() {
         <div>
           <h2 className="fw-bold mb-1">Tetapan Daerah</h2>
           <p className="text-muted mb-0">
-            Urus maklumat rasmi dan status environment daerah.
+            Urus maklumat rasmi daerah. Negeri dan daerah ditetapkan oleh Super
+            Admin.
           </p>
         </div>
 
@@ -521,6 +587,14 @@ export default function DistrictSettingsPage() {
           {form.status}
         </span>
       </div>
+
+      {!isSuperAdmin && (
+        <div className="alert alert-info rounded-4 border-0 shadow-sm">
+          <i className="bi bi-info-circle me-2"></i>
+          Negeri, daerah dan status environment dikunci kerana maklumat ini
+          ditetapkan oleh Super Admin semasa approval daerah.
+        </div>
+      )}
 
       <div className="row g-4">
         <div className="col-lg-8">
@@ -539,6 +613,7 @@ export default function DistrictSettingsPage() {
                   <select
                     className="form-select"
                     value={selectedStateId}
+                    disabled={!isSuperAdmin}
                     onChange={(e) => {
                       const stateId = e.target.value;
                       const selectedState = states.find(
@@ -564,6 +639,12 @@ export default function DistrictSettingsPage() {
                       </option>
                     ))}
                   </select>
+
+                  {!isSuperAdmin && (
+                    <small className="text-muted">
+                      Negeri hanya boleh diubah oleh Super Admin.
+                    </small>
+                  )}
                 </div>
 
                 <div className="col-md-6">
@@ -571,7 +652,7 @@ export default function DistrictSettingsPage() {
                   <select
                     className="form-select"
                     value={form.district}
-                    disabled={!selectedStateId}
+                    disabled={!isSuperAdmin || !selectedStateId}
                     onChange={(e) =>
                       setForm({ ...form, district: e.target.value })
                     }
@@ -585,11 +666,15 @@ export default function DistrictSettingsPage() {
                     ))}
                   </select>
 
-                  {!selectedStateId && (
+                  {!isSuperAdmin ? (
+                    <small className="text-muted">
+                      Daerah hanya boleh diubah oleh Super Admin.
+                    </small>
+                  ) : !selectedStateId ? (
                     <small className="text-muted">
                       Pilih negeri dahulu untuk lihat senarai daerah.
                     </small>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className="col-md-12">
@@ -651,8 +736,8 @@ export default function DistrictSettingsPage() {
                     placeholder="Nama Pesuruhjaya Daerah"
                   />
                   <small className="text-muted">
-                    Ini hanya maklumat rasmi daerah, tidak mengubah nama akaun
-                    login.
+                    Ini maklumat rasmi paparan daerah. Pertukaran akaun
+                    Pesuruhjaya sebenar perlu dibuat oleh Super Admin.
                   </small>
                 </div>
 
@@ -674,13 +759,22 @@ export default function DistrictSettingsPage() {
                   <select
                     className="form-select"
                     value={form.status}
+                    disabled={!isSuperAdmin}
                     onChange={(e) =>
                       setForm({ ...form, status: e.target.value })
                     }
                   >
                     <option>Aktif</option>
                     <option>Tidak Aktif</option>
+                    <option>Digantung</option>
+                    <option>Pending</option>
                   </select>
+
+                  {!isSuperAdmin && (
+                    <small className="text-muted">
+                      Status environment hanya boleh diubah oleh Super Admin.
+                    </small>
+                  )}
                 </div>
               </div>
 
@@ -809,7 +903,7 @@ export default function DistrictSettingsPage() {
             <span className="small">
               {form.status === "Aktif"
                 ? "Daerah ini sedang aktif dan boleh digunakan oleh pengguna."
-                : "Daerah ini tidak aktif. Pengguna mungkin tidak dapat menggunakan environment daerah ini."}
+                : "Daerah ini tidak aktif atau sedang dikawal oleh Super Admin."}
             </span>
           </div>
         </div>
