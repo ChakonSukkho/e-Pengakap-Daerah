@@ -69,62 +69,82 @@ export default function GroupLeaderDashboard() {
 
   return (
     <DashboardLayout role="groupLeader">
-      <div className="d-flex justify-content-between align-items-start mb-4">
+      <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
-          <h2 className="fw-bold mb-1">Papan Pemuka Pemimpin Kumpulan</h2>
+          <div className="d-flex align-items-center gap-2 mb-2">
+            <span className="badge bg-success-subtle text-success border border-success-subtle px-3 py-2">
+              <i className="bi bi-building me-2"></i>
+              {groupName || "Kumpulan Belum Ditetapkan"}
+            </span>
+            <span className="badge bg-light text-muted border px-3 py-2">
+              Pemimpin Kumpulan
+            </span>
+          </div>
+
+          <h2 className="fw-bold mb-1">Papan Pemuka Kumpulan</h2>
           <p className="text-muted mb-0">
-            {groupName || "Kumpulan"} · Ringkasan operasi kumpulan.
+            Pantau ahli, aktiviti, kehadiran dan pencapaian kumpulan anda.
           </p>
         </div>
 
-        <button className="btn btn-outline-success" onClick={fetchDashboard}>
+        <button className="btn btn-outline-success rounded-3" onClick={fetchDashboard}>
           <i className="bi bi-arrow-clockwise me-1"></i>
           Refresh
         </button>
       </div>
 
       <div className="row g-3 mb-4">
-        <div className="col-md-3">
-          <div className="card border-0 shadow-sm rounded-4">
-            <div className="card-body">
-              <p className="text-muted small mb-1">Ahli Kumpulan</p>
-              <h3 className="fw-bold mb-0">{members.length}</h3>
-              <small className="text-success">Aktif: {activeMembers}</small>
+        {[
+          {
+            label: "Ahli Kumpulan",
+            value: members.length,
+            sub: `Aktif: ${activeMembers}`,
+            icon: "bi-people",
+            color: "success",
+          },
+          {
+            label: "Aktiviti Akan Datang",
+            value: upcomingActivities,
+            sub: "Jadual aktiviti",
+            icon: "bi-calendar-event",
+            color: "primary",
+          },
+          {
+            label: "Kadar Kehadiran",
+            value: "92%",
+            sub: "Berdasarkan rekod",
+            icon: "bi-clipboard-check",
+            color: "success",
+          },
+          {
+            label: "Lencana Dianugerah",
+            value: 0,
+            sub: "Jumlah pencapaian",
+            icon: "bi-award",
+            color: "warning",
+          },
+        ].map((card) => (
+          <div className="col-md-3" key={card.label}>
+            <div className="card border-0 shadow-sm rounded-4 h-100">
+              <div className="card-body d-flex justify-content-between align-items-center">
+                <div>
+                  <div className="text-muted small mb-1">{card.label}</div>
+                  <h3 className={`fw-bold mb-1 text-${card.color}`}>
+                    {card.value}
+                  </h3>
+                  <small className="text-muted">{card.sub}</small>
+                </div>
+        
+                <div
+                  className={`bg-${card.color}-subtle text-${card.color} rounded-4 d-flex align-items-center justify-content-center`}
+                  style={{ width: 52, height: 52 }}
+                >
+                  <i className={`bi ${card.icon} fs-4`}></i>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-
-        <div className="col-md-3">
-          <div className="card border-0 shadow-sm rounded-4">
-            <div className="card-body">
-              <p className="text-muted small mb-1">Aktiviti Akan Datang</p>
-              <h3 className="fw-bold text-primary mb-0">
-                {upcomingActivities}
-              </h3>
-              <small className="text-muted">Daripada jadual aktiviti</small>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-md-3">
-          <div className="card border-0 shadow-sm rounded-4">
-            <div className="card-body">
-              <p className="text-muted small mb-1">Kadar Kehadiran</p>
-              <h3 className="fw-bold text-success mb-0">92%</h3>
-              <small className="text-muted">Demo metric</small>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-md-3">
-          <div className="card border-0 shadow-sm rounded-4">
-            <div className="card-body">
-              <p className="text-muted small mb-1">Lencana Dianugerah</p>
-              <h3 className="fw-bold text-warning mb-0">0</h3>
-              <small className="text-muted">Belum connect table</small>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
       <div className="row g-4 mb-4">
@@ -215,8 +235,17 @@ export default function GroupLeaderDashboard() {
       </div>
 
       <div className="card border-0 shadow-sm rounded-4">
-        <div className="card-header bg-white fw-semibold">
-          Ahli Kumpulan
+        <div className="card-header bg-white d-flex justify-content-between align-items-center">
+          <div>
+            <h6 className="fw-bold mb-0">Ahli Kumpulan</h6>
+            <small className="text-muted">
+              Senarai ringkas ahli kumpulan semasa
+            </small>
+          </div>
+                    
+          <span className="badge bg-success-subtle text-success px-3 py-2">
+            {members.length} ahli
+          </span>
         </div>
 
         <div className="card-body table-responsive">
@@ -224,6 +253,7 @@ export default function GroupLeaderDashboard() {
             <thead>
               <tr>
                 <th>Nama Ahli</th>
+                <th>Kumpulan</th>
                 <th>Email</th>
                 <th>Kategori</th>
                 <th>Umur</th>
@@ -235,7 +265,7 @@ export default function GroupLeaderDashboard() {
             <tbody>
               {members.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-5 text-muted">
+                  <td colSpan={7} className="text-center py-5 text-muted">
                     Tiada ahli dijumpai untuk kumpulan ini.
                   </td>
                 </tr>
@@ -243,6 +273,7 @@ export default function GroupLeaderDashboard() {
                 members.slice(0, 6).map((member) => (
                   <tr key={member.id}>
                     <td className="fw-semibold">{member.full_name}</td>
+                    <td><span className="badge bg-primary">{member.group_name}</span></td>
                     <td>{member.email}</td>
                     <td>{member.category}</td>
                     <td>{member.age}</td>

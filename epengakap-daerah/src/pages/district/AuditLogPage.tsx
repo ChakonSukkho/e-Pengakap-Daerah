@@ -101,14 +101,16 @@ export default function AuditLogPage() {
       .from("audit_logs")
       .select("*")
       .order("created_at", { ascending: false });
+      
+    console.log("AUDIT ERROR:", error);
+    console.log("AUDIT DATA:", data);
 
     if (error) {
       alert(error.message);
       return;
     }
-
-    setLogs(data || []);
     console.log("AUDIT DATA:", data);
+    setLogs(data || []);
   }
 
   const filteredLogs = logs.filter((log) => {

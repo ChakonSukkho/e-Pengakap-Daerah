@@ -17,6 +17,7 @@ import UserManagementPage from "../pages/district/UserManagementPage";
 import GroupManagementPage from "../pages/district/GroupManagementPage";
 import MemberManagementPage from "../pages/district/MemberManagementPage";
 import DistrictSettingsPage from "../pages/district/DistrictSettingsPage";
+import DistrictActivitiesPage from "../pages/district/DistrictActivitiesPage";
 import AuditLogPage from "../pages/district/AuditLogPage";
 
 import AssistantCommissionerDashboard from "../pages/assistantCommissioner/AssistantCommissionerDashboard";
@@ -146,6 +147,15 @@ export default function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
             <DistrictSettingsPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/district/activities"
+        element={
+          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
+            <DistrictActivitiesPage />
           </ProtectedRoute>
         }
       />

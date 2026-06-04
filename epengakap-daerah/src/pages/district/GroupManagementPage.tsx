@@ -7,13 +7,24 @@ type ScoutGroup = {
   id: string;
   group_name: string;
   school_name: string;
-  leader_name: string;
+  leader_user_id: string | null;
+  leader_name: string | null;
   total_members: number;
+  status: string;
+};
+
+type LeaderUser = {
+  id: string;
+  full_name: string;
+  email: string | null;
+  role: string;
   status: string;
 };
 
 export default function GroupManagementPage() {
   const [groups, setGroups] = useState<ScoutGroup[]>([]);
+  const [leaders, setLeaders] = useState<LeaderUser[]>([]);
+
   const [editingGroup, setEditingGroup] = useState<ScoutGroup | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<ScoutGroup | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ScoutGroup | null>(null);
@@ -31,6 +42,7 @@ export default function GroupManagementPage() {
   const [form, setForm] = useState({
     group_name: "",
     school_name: "",
+    leader_user_id: "",
     leader_name: "",
     total_members: "",
     status: "Aktif",
@@ -38,6 +50,7 @@ export default function GroupManagementPage() {
 
   useEffect(() => {
     fetchGroups();
+    fetchActiveGroupLeaders();
   }, []);
 
   async function fetchGroups() {
@@ -67,6 +80,7 @@ export default function GroupManagementPage() {
     setForm({
       group_name: "",
       school_name: "",
+      leader_user_id: "",
       leader_name: "",
       total_members: "",
       status: "Aktif",
@@ -88,6 +102,7 @@ export default function GroupManagementPage() {
     setForm({
       group_name: group.group_name,
       school_name: group.school_name,
+      leader_user_id: group.leader_user_id || "",
       leader_name: group.leader_name || "",
       total_members: String(group.total_members || 0),
       status: group.status,
@@ -112,7 +127,8 @@ export default function GroupManagementPage() {
     const payload = {
       group_name: form.group_name,
       school_name: form.school_name,
-      leader_name: form.leader_name,
+      leader_user_id: form.leader_user_id || null,
+      leader_name: form.leader_name || null,
       total_members: Number(form.total_members || 0),
       status: form.status,
     };
@@ -137,8 +153,11 @@ export default function GroupManagementPage() {
     }
 
     await addAuditLog(
-      editingGroup ? "Kemaskini kumpulan" : "Tambah kumpulan",
-      "Kumpulan / Sekolah", editingGroup ? `Kemaskini kumpulan ${form.group_name}` : `Tambah kumpulan ${form.group_name}`
+      editingGroup ? "UPDATE" : "CREATE",
+      "Kumpulan / Sekolah",
+      editingGroup
+        ? `Kemaskini kumpulan ${form.group_name}`
+        : `Tambah kumpulan ${form.group_name}`
     );
     await fetchGroups();
     resetForm();
@@ -159,9 +178,9 @@ export default function GroupManagementPage() {
     }
 
     await addAuditLog(
-      "Update",
+      "Delete",
       "Kumpulan / Sekolah",
-      `Kemaskini kumpulan ${form.group_name}`
+      `Padam kumpulan ${deleteTarget.group_name}`
     );
     await fetchGroups();
     setShowDeleteModal(false);
@@ -169,28 +188,36 @@ export default function GroupManagementPage() {
     setSelectedGroup(null);
   }
 
-  async function viewMembers(group: ScoutGroup) {
-    const { data, error } = await supabase
-      .from("members")
-      .select("*")
-      .eq("group_name", group.school_name)
+async function viewMembers(group: ScoutGroup) {
+  const possibleGroupNames = [
+    group.group_name,
+    group.school_name,
+  ].filter(Boolean);
 
-    if (error) {
-      alert(error.message);
-      return;
-    }
+  const { data, error } = await supabase
+    .from("members")
+    .select("*")
+    .in("group_name", possibleGroupNames);
 
-    setGroupMembers(data || []);
-    setShowMembersModal(true);
+  if (error) {
+    alert(error.message);
+    return;
   }
 
+  setGroupMembers(data || []);
+  setShowMembersModal(true);
+}
+
 async function viewActivities(group: ScoutGroup) {
-  const schoolName = group.school_name.trim();
+  const possibleGroupNames = [
+    group.group_name,
+    group.school_name,
+  ].filter(Boolean);
 
   const { data, error } = await supabase
     .from("activities")
     .select("*")
-    .ilike("group_name", schoolName)
+    .in("group_name", possibleGroupNames)
     .order("activity_date", { ascending: true });
 
   if (error) {
@@ -200,6 +227,22 @@ async function viewActivities(group: ScoutGroup) {
 
   setGroupActivities(data || []);
   setShowActivitiesModal(true);
+}
+
+async function fetchActiveGroupLeaders() {
+  const { data, error } = await supabase
+    .from("system_users")
+    .select("id, full_name, email, role, status")
+    .in("role", ["Pemimpin Kumpulan", "group_leader"])
+    .in("status", ["Aktif", "active"])
+    .order("full_name", { ascending: true });
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  setLeaders(data || []);
 }
 
   return (
@@ -450,14 +493,37 @@ async function viewActivities(group: ScoutGroup) {
 
                   <div className="col-md-6">
                     <label className="form-label">Pemimpin Kumpulan</label>
-                    <input
-                      className="form-control"
-                      value={form.leader_name}
-                      onChange={(e) =>
-                        setForm({ ...form, leader_name: e.target.value })
-                      }
-                      placeholder="Encik Roslan Mohd"
-                    />
+
+                    <select
+                      className="form-select"
+                      value={form.leader_user_id}
+                      onChange={(e) => {
+                        const selectedLeader = leaders.find(
+                          (leader) => leader.id === e.target.value
+                        );
+                      
+                        setForm({
+                          ...form,
+                          leader_user_id: e.target.value,
+                          leader_name: selectedLeader?.full_name || "",
+                        });
+                      }}
+                    >
+                      <option value="">Pilih Pemimpin Kumpulan</option>
+                    
+                      {leaders.map((leader) => (
+                        <option key={leader.id} value={leader.id}>
+                          {leader.full_name}
+                          {leader.email ? ` (${leader.email})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    
+                    {leaders.length === 0 && (
+                      <small className="text-muted">
+                        Tiada Pemimpin Kumpulan aktif dijumpai. Sila tambah user role Pemimpin Kumpulan dahulu.
+                      </small>
+                    )}
                   </div>
 
                   <div className="col-md-6">

@@ -27,6 +27,7 @@ const menus: Record<RoleType, MenuItem[]> = {
     { to: "/district/users", label: "Pengguna", icon: "bi-person-gear" },
     { to: "/district/groups", label: "Kumpulan / Sekolah", icon: "bi-mortarboard" },
     { to: "/district/members", label: "Ahli Pengakap", icon: "bi-people" },
+    { to: "/district/activities", label: "Activities", icon: "bi-calendar-event" },
     { to: "/district/settings", label: "Tetapan Daerah", icon: "bi-gear" },
     { to: "/district/audit", label: "Log Audit", icon: "bi-journal-text" },
   ],
