@@ -4,24 +4,177 @@ import { supabase } from "../../services/supabaseClient";
 
 type UserProfile = {
   id: string;
+  full_name: string | null;
+  name?: string | null;
+  email: string | null;
+  phone?: string | null;
+  role: string | null;
+  district: string | null;
+  district_environment_id?: string | null;
+  group_id?: string | null;
+  group_name?: string | null;
+  status: string | null;
+  password?: string | null;
+  notes?: string | null;
+
+  tauliah_type?: string | null;
+  tauliah_no?: string | null;
+  tauliah_date?: string | null;
+  tauliah_status?: string | null;
+  certificate_no?: string | null;
+  medal_no?: string | null;
+
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type ProfileForm = {
   full_name: string;
   email: string;
-  role: string;
-  district: string | null;
-  group_name?: string | null;
-  status: string;
-  password?: string;
-  created_at?: string;
+  phone: string;
+  password: string;
 };
+
+function getCurrentUser() {
+  try {
+    return JSON.parse(
+      localStorage.getItem("user") ||
+        localStorage.getItem("auth_user") ||
+        "{}"
+    );
+  } catch {
+    return {};
+  }
+}
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+}
+
+function normalizeRole(role?: string | null) {
+  if (role === "Penolong Pesuruhjaya") return "Penolong Pesuruhjaya Daerah";
+  if (role === "District") return "Pesuruhjaya Daerah";
+  return role || "-";
+}
+
+function normalizeStatus(status?: string | null) {
+  if (status === "Active") return "Aktif";
+  if (status === "Inactive") return "Tidak Aktif";
+  if (status === "Suspended") return "Digantung";
+  return status || "Aktif";
+}
+
+function normalizeTauliahType(value?: string | null) {
+  return value || "Tiada";
+}
+
+function normalizeTauliahStatus(value?: string | null) {
+  return value || "Tiada";
+}
+
+function normalizeMalaysiaPhone(value: string) {
+  return value.replace(/\D/g, "").slice(0, 11);
+}
+
+function formatMalaysiaPhone(value: string) {
+  const digits = normalizeMalaysiaPhone(value);
+
+  if (!digits) return "";
+
+  if (digits.startsWith("03")) {
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+    return `${digits.slice(0, 2)}-${digits.slice(2, 6)} ${digits.slice(6)}`;
+  }
+
+  if (digits.startsWith("011")) {
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+    return `${digits.slice(0, 3)}-${digits.slice(3, 7)} ${digits.slice(7)}`;
+  }
+
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)} ${digits.slice(6)}`;
+}
+
+function isValidMalaysiaPhone(value: string) {
+  const digits = normalizeMalaysiaPhone(value);
+
+  if (!digits) return true;
+  if (!digits.startsWith("0")) return false;
+
+  return digits.length >= 9 && digits.length <= 11;
+}
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "-";
+
+  return new Date(value).toLocaleDateString("ms-MY", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getTauliahBadge(type?: string | null) {
+  const tauliahType = normalizeTauliahType(type);
+
+  if (tauliahType === "Tetap") {
+    return "bg-success-subtle text-success border border-success-subtle";
+  }
+
+  if (tauliahType === "Sementara") {
+    return "bg-warning-subtle text-warning border border-warning-subtle";
+  }
+
+  return "bg-light text-muted border";
+}
+
+async function addAuditLog(action: string, description: string) {
+  try {
+    const currentUser = getCurrentUser();
+
+    await supabase.from("audit_logs").insert({
+      actor_name:
+        currentUser.full_name ||
+        currentUser.name ||
+        "Pemimpin Kumpulan",
+      actor_role: currentUser.role || "Pemimpin Kumpulan",
+      action,
+      module: "Profil Pemimpin",
+      description,
+      user_id: currentUser.id || null,
+      district_environment_id: currentUser.district_environment_id || null,
+      record_id: currentUser.id || null,
+      ip_address: null,
+      user_agent: navigator.userAgent,
+    });
+  } catch {
+    // Jangan block update profile kalau audit log gagal.
+  }
+}
 
 export default function ProfilePage() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<ProfileForm>({
     full_name: "",
     email: "",
+    phone: "",
     password: "",
   });
 
@@ -29,81 +182,161 @@ export default function ProfilePage() {
     loadProfile();
   }, []);
 
-  function getInitials(name: string) {
-    return name
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((word) => word[0])
-      .join("")
-      .toUpperCase();
-  }
+  async function loadProfile() {
+    setLoading(true);
 
-  function loadProfile() {
-    const currentUser = JSON.parse(localStorage.getItem("user") || "null");
+    const currentUser = getCurrentUser();
 
-    if (!currentUser) {
+    if (!currentUser?.id) {
       setLoading(false);
       return;
     }
 
-    setUser(currentUser);
+    const { data, error } = await supabase
+      .from("system_users")
+      .select("*")
+      .eq("id", currentUser.id)
+      .maybeSingle();
+
+    if (error) {
+      alert(error.message);
+      setUser(currentUser);
+
+      setForm({
+        full_name: currentUser.full_name || currentUser.name || "",
+        email: currentUser.email || "",
+        phone: formatMalaysiaPhone(currentUser.phone || ""),
+        password: currentUser.password || "",
+      });
+
+      setLoading(false);
+      return;
+    }
+
+    const profile = data || currentUser;
+
+    setUser(profile);
+
     setForm({
-      full_name: currentUser.full_name || "",
-      email: currentUser.email || "",
-      password: currentUser.password || "",
+      full_name: profile.full_name || profile.name || "",
+      email: profile.email || "",
+      phone: formatMalaysiaPhone(profile.phone || ""),
+      password: profile.password || "",
     });
+
+    localStorage.setItem("user", JSON.stringify(profile));
+    localStorage.setItem("auth_user", JSON.stringify(profile));
 
     setLoading(false);
   }
 
-  async function addAuditLog(action: string, description: string) {
-    const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
+  function validateForm() {
+    if (!form.full_name.trim()) {
+      alert("Sila isi nama penuh.");
+      return false;
+    }
 
-    await supabase.from("audit_logs").insert({
-      actor_name: currentUser.full_name || "Pemimpin Kumpulan",
-      actor_role: currentUser.role || "Pemimpin Kumpulan",
-      action,
-      module: "Profil Pemimpin",
-      description,
-    });
+    if (!form.email.trim()) {
+      alert("Sila isi email.");
+      return false;
+    }
+
+    if (!isValidEmail(form.email)) {
+      alert("Format email tidak sah.");
+      return false;
+    }
+
+    if (form.phone && !isValidMalaysiaPhone(form.phone)) {
+      alert(
+        "Nombor telefon tidak sah. Sila masukkan nombor Malaysia yang bermula dengan 0. Contoh: 012-345 6789."
+      );
+      return false;
+    }
+
+    return true;
   }
 
-  async function saveProfile() {
-    if (!user) return;
+async function saveProfile() {
+  if (!user?.id) {
+    alert("Profil pengguna tidak dijumpai.");
+    return;
+  }
 
-    if (!form.full_name.trim() || !form.email.trim()) {
-      alert("Sila isi nama dan email.");
-      return;
-    }
+  if (!form.full_name.trim()) {
+    alert("Nama penuh wajib diisi.");
+    return;
+  }
 
-    setSaving(true);
+  if (!form.email.trim()) {
+    alert("Email wajib diisi.");
+    return;
+  }
 
-    const { data, error } = await supabase
-      .from("system_users")
-      .update({
-        full_name: form.full_name,
-        email: form.email,
-        password: form.password,
-      })
-      .eq("id", user.id)
-      .select()
-      .single();
+  if (!isValidEmail(form.email.trim())) {
+    alert("Format email tidak sah.");
+    return;
+  }
 
-    if (error) {
-      alert(error.message);
-      setSaving(false);
-      return;
-    }
+  if (!isValidMalaysiaPhone(form.phone)) {
+    alert("Format nombor telefon tidak sah.");
+    return;
+  }
 
-    localStorage.setItem("user", JSON.stringify(data));
-    setUser(data);
+  setSaving(true);
 
-    await addAuditLog("UPDATE", `Kemaskini profil pemimpin: ${form.full_name}`);
+  const payload: any = {
+    full_name: form.full_name.trim(),
+    email: form.email.trim(),
+    phone: normalizeMalaysiaPhone(form.phone),
+    updated_at: new Date().toISOString(),
+  };
 
+  if (form.password.trim()) {
+    payload.password = form.password.trim();
+  }
+
+  const { error } = await supabase
+    .from("system_users")
+    .update(payload)
+    .eq("id", user.id);
+
+  if (error) {
+    alert(error.message);
     setSaving(false);
-    alert("Profil berjaya dikemaskini.");
+    return;
   }
+
+  const updatedUser = {
+    ...user,
+    full_name: payload.full_name,
+    email: payload.email,
+    phone: payload.phone,
+    password: payload.password || user.password,
+    updated_at: payload.updated_at,
+  };
+
+  setUser(updatedUser);
+
+  const currentUser = getCurrentUser();
+
+  const updatedLocalUser = {
+    ...currentUser,
+    full_name: payload.full_name,
+    name: payload.full_name, // localStorage sahaja, bukan database
+    email: payload.email,
+    phone: payload.phone,
+  };
+
+  localStorage.setItem("user", JSON.stringify(updatedLocalUser));
+  localStorage.setItem("auth_user", JSON.stringify(updatedLocalUser));
+
+  window.dispatchEvent(new Event("userProfileUpdated"));
+
+  await addAuditLog("UPDATE", "Kemaskini profil pemimpin kumpulan");
+
+  setSaving(false);
+  alert("Profil berjaya dikemaskini.");
+}
 
   if (loading) {
     return (
@@ -121,12 +354,19 @@ export default function ProfilePage() {
   if (!user) {
     return (
       <DashboardLayout role="groupLeader">
-        <div className="alert alert-warning">
+        <div className="alert alert-warning rounded-4">
           Maklumat pengguna tidak dijumpai. Sila log masuk semula.
         </div>
       </DashboardLayout>
     );
   }
+
+  const userName = user.full_name || user.name || "-";
+  const role = normalizeRole(user.role);
+  const status = normalizeStatus(user.status);
+  const tauliahType = normalizeTauliahType(user.tauliah_type);
+  const tauliahStatus = normalizeTauliahStatus(user.tauliah_status);
+  const hasTauliah = tauliahType !== "Tiada";
 
   return (
     <DashboardLayout role="groupLeader">
@@ -134,7 +374,7 @@ export default function ProfilePage() {
         <div>
           <h2 className="fw-bold mb-1">Profil Saya</h2>
           <p className="text-muted mb-0">
-            Urus maklumat akaun Pemimpin Kumpulan.
+            Urus maklumat akaun dan lihat maklumat tauliah anda.
           </p>
         </div>
 
@@ -150,20 +390,20 @@ export default function ProfilePage() {
 
       <div className="row g-4">
         <div className="col-lg-4">
-          <div className="card border-0 shadow-sm rounded-4">
+          <div className="card border-0 shadow-sm rounded-4 mb-4">
             <div className="card-body text-center p-4">
               <div
                 className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold mx-auto mb-3"
-                style={{ width: 86, height: 86, fontSize: 30 }}
+                style={{ width: 90, height: 90, fontSize: 32 }}
               >
-                {getInitials(user.full_name || "-")}
+                {getInitials(userName)}
               </div>
 
-              <h5 className="fw-bold mb-1">{user.full_name}</h5>
-              <p className="text-muted mb-3">{user.email}</p>
+              <h5 className="fw-bold mb-1">{userName}</h5>
+              <p className="text-muted mb-3">{user.email || "-"}</p>
 
-              <span className="badge rounded-pill bg-primary-subtle text-primary px-3 py-2">
-                {user.role}
+              <span className="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle px-3 py-2">
+                {role}
               </span>
 
               <hr />
@@ -172,11 +412,15 @@ export default function ProfilePage() {
                 <div className="d-flex justify-content-between mb-2">
                   <span className="text-muted">Status</span>
                   <span
-                    className={`badge ${
-                      user.status === "Aktif" ? "bg-success" : "bg-secondary"
+                    className={`badge rounded-pill ${
+                      status === "Aktif"
+                        ? "bg-success"
+                        : status === "Digantung"
+                        ? "bg-warning text-dark"
+                        : "bg-secondary"
                     }`}
                   >
-                    {user.status}
+                    {status}
                   </span>
                 </div>
 
@@ -185,22 +429,65 @@ export default function ProfilePage() {
                   <strong>{user.district || "-"}</strong>
                 </div>
 
-                <div className="d-flex justify-content-between">
+                <div className="d-flex justify-content-between mb-2">
                   <span className="text-muted">Kumpulan</span>
-                  <strong>{user.group_name || user.district || "-"}</strong>
+                  <strong>{user.group_name || "-"}</strong>
+                </div>
+
+                <div className="d-flex justify-content-between">
+                  <span className="text-muted">Telefon</span>
+                  <strong>{formatMalaysiaPhone(user.phone || "") || "-"}</strong>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-body p-4">
+              <div className="d-flex justify-content-between align-items-start mb-3">
+                <div>
+                  <h6 className="fw-bold mb-1">
+                    <i className="bi bi-patch-check text-success me-2"></i>
+                    Status Tauliah
+                  </h6>
+                  <small className="text-muted">Ringkasan tauliah anda</small>
+                </div>
+
+                <span
+                  className={`badge rounded-pill px-3 py-2 ${getTauliahBadge(
+                    tauliahType
+                  )}`}
+                >
+                  {hasTauliah ? tauliahType : "Tiada Tauliah"}
+                </span>
+              </div>
+
+              {hasTauliah ? (
+                <div className="alert alert-success rounded-4 small mb-0">
+                  <i className="bi bi-check-circle me-2"></i>
+                  Anda mempunyai tauliah jenis{" "}
+                  <strong>{tauliahType}</strong>.
+                </div>
+              ) : (
+                <div className="alert alert-light border rounded-4 small mb-0">
+                  <i className="bi bi-info-circle me-2"></i>
+                  Maklumat tauliah belum direkodkan oleh pihak daerah.
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         <div className="col-lg-8">
-          <div className="card border-0 shadow-sm rounded-4">
-            <div className="card-header bg-white p-4">
-              <h5 className="fw-bold mb-0">Maklumat Akaun</h5>
+          <div className="card border-0 shadow-sm rounded-4 mb-4">
+            <div className="card-header bg-white border-0 p-4">
+              <h5 className="fw-bold mb-1">Maklumat Akaun</h5>
+              <p className="text-muted small mb-0">
+                Anda boleh kemaskini nama, email, telefon dan kata laluan.
+              </p>
             </div>
 
-            <div className="card-body p-4">
+            <div className="card-body p-4 pt-0">
               <div className="row g-3">
                 <div className="col-md-6">
                   <label className="form-label">Nama Penuh</label>
@@ -226,17 +513,45 @@ export default function ProfilePage() {
                 </div>
 
                 <div className="col-md-6">
+                  <label className="form-label">No Telefon</label>
+                  <input
+                    className="form-control"
+                    value={form.phone}
+                    maxLength={13}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        phone: formatMalaysiaPhone(e.target.value),
+                      })
+                    }
+                    placeholder="012-345 6789"
+                  />
+                </div>
+
+                <div className="col-md-6">
+                  <label className="form-label">Kata Laluan</label>
+                  <input
+                    className="form-control"
+                    type="password"
+                    value={form.password}
+                    onChange={(e) =>
+                      setForm({ ...form, password: e.target.value })
+                    }
+                  />
+                  <small className="text-muted">
+                    Untuk development sahaja. Production nanti guna reset
+                    password.
+                  </small>
+                </div>
+
+                <div className="col-md-6">
                   <label className="form-label">Role</label>
-                  <input className="form-control" value={user.role} readOnly />
+                  <input className="form-control" value={role} readOnly />
                 </div>
 
                 <div className="col-md-6">
                   <label className="form-label">Status Akaun</label>
-                  <input
-                    className="form-control"
-                    value={user.status || "-"}
-                    readOnly
-                  />
+                  <input className="form-control" value={status} readOnly />
                 </div>
 
                 <div className="col-md-6">
@@ -252,35 +567,16 @@ export default function ProfilePage() {
                   <label className="form-label">Kumpulan</label>
                   <input
                     className="form-control"
-                    value={user.group_name || user.district || "-"}
+                    value={user.group_name || "-"}
                     readOnly
                   />
-                </div>
-
-                <div className="col-md-6">
-                  <label className="form-label">Kata Laluan</label>
-                  <input
-                    className="form-control"
-                    type="password"
-                    value={form.password}
-                    onChange={(e) =>
-                      setForm({ ...form, password: e.target.value })
-                    }
-                  />
-                  <small className="text-muted">
-                    Untuk development sahaja. Production nanti guna reset password.
-                  </small>
                 </div>
 
                 <div className="col-md-6">
                   <label className="form-label">Tarikh Daftar</label>
                   <input
                     className="form-control"
-                    value={
-                      user.created_at
-                        ? new Date(user.created_at).toLocaleDateString()
-                        : "-"
-                    }
+                    value={formatDate(user.created_at)}
                     readOnly
                   />
                 </div>
@@ -288,9 +584,103 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          <div className="alert alert-info mt-4 mb-0">
-            <i className="bi bi-info-circle me-2"></i>
-            Perubahan nama dan email akan dikemaskini pada sesi login semasa.
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-header bg-white border-0 p-4">
+              <div className="d-flex justify-content-between align-items-start">
+                <div>
+                  <h5 className="fw-bold mb-1">
+                    Maklumat Tauliah & Pengiktirafan
+                  </h5>
+                  <p className="text-muted small mb-0">
+                    Maklumat ini dikemaskini oleh Pesuruhjaya Daerah atau Super
+                    Admin.
+                  </p>
+                </div>
+
+                <span
+                  className={`badge rounded-pill px-3 py-2 ${getTauliahBadge(
+                    tauliahType
+                  )}`}
+                >
+                  {hasTauliah ? tauliahType : "Tiada Tauliah"}
+                </span>
+              </div>
+            </div>
+
+            <div className="card-body p-4 pt-0">
+              <div className="row g-3">
+                <div className="col-md-4">
+                  <div className="border rounded-4 p-3 h-100">
+                    <small className="text-muted d-block mb-1">
+                      Jenis Tauliah
+                    </small>
+                    <strong>{tauliahType}</strong>
+                  </div>
+                </div>
+
+                <div className="col-md-4">
+                  <div className="border rounded-4 p-3 h-100">
+                    <small className="text-muted d-block mb-1">
+                      Status Tauliah
+                    </small>
+                    <strong>{tauliahStatus}</strong>
+                  </div>
+                </div>
+
+                <div className="col-md-4">
+                  <div className="border rounded-4 p-3 h-100">
+                    <small className="text-muted d-block mb-1">
+                      Tarikh Tauliah
+                    </small>
+                    <strong>{formatDate(user.tauliah_date)}</strong>
+                  </div>
+                </div>
+
+                <div className="col-md-6">
+                  <div className="border rounded-4 p-3 h-100">
+                    <small className="text-muted d-block mb-1">
+                      No Tauliah
+                    </small>
+                    <strong>{user.tauliah_no || "-"}</strong>
+                  </div>
+                </div>
+
+                <div className="col-md-6">
+                  <div className="border rounded-4 p-3 h-100">
+                    <small className="text-muted d-block mb-1">No Sijil</small>
+                    <strong>{user.certificate_no || "-"}</strong>
+                  </div>
+                </div>
+
+                <div className="col-md-6">
+                  <div className="border rounded-4 p-3 h-100">
+                    <small className="text-muted d-block mb-1">No Pingat</small>
+                    <strong>{user.medal_no || "-"}</strong>
+                  </div>
+                </div>
+
+                <div className="col-md-6">
+                  <div className="border rounded-4 p-3 h-100 bg-light">
+                    <small className="text-muted d-block mb-1">
+                      Kemaskini Tauliah
+                    </small>
+                    <strong className="text-muted">Read-only</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="alert alert-info rounded-4 mt-4 mb-0">
+                <i className="bi bi-info-circle me-2"></i>
+                Jika maklumat tauliah tidak tepat, sila hubungi Pesuruhjaya
+                Daerah untuk kemaskini.
+              </div>
+            </div>
+          </div>
+
+          <div className="alert alert-light border mt-4 mb-0 rounded-4">
+            <i className="bi bi-shield-lock me-2"></i>
+            Maklumat role, daerah, kumpulan dan tauliah dikunci untuk menjaga
+            keselamatan data daerah.
           </div>
         </div>
       </div>
