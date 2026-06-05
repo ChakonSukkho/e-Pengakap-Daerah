@@ -4,9 +4,12 @@ import StatCard from "../../components/ui/StatCard";
 import { Link } from "react-router-dom";
 import { supabase } from "../../services/supabaseClient";
 
+const APPLICATION_TABLE = "district_applications";
+
 type DistrictApplication = {
   id: string;
-  applicant_name: string;
+  applicant_name: string | null;
+  full_name?: string | null;
   email: string | null;
   phone: string | null;
   state: string | null;
@@ -27,12 +30,130 @@ type AuditLog = {
   created_at: string;
 };
 
+function normalizeStatus(value?: string | null) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function formatDate(dateValue?: string | null) {
+  if (!dateValue) return "-";
+
+  const date = new Date(dateValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleDateString("ms-MY", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getStatusBadge(statusValue: string | null) {
+  const status = statusValue || "Unknown";
+  const normalized = normalizeStatus(statusValue);
+
+  if (normalized === "approved" || normalized === "aktif" || normalized === "active") {
+    return (
+      <span className="badge bg-success-subtle text-success border border-success-subtle">
+        Approved
+      </span>
+    );
+  }
+
+  if (normalized === "pending" || normalized === "menunggu") {
+    return (
+      <span className="badge bg-warning-subtle text-warning border border-warning-subtle">
+        Pending
+      </span>
+    );
+  }
+
+  if (normalized === "rejected" || normalized === "ditolak") {
+    return (
+      <span className="badge bg-danger-subtle text-danger border border-danger-subtle">
+        Rejected
+      </span>
+    );
+  }
+
+  if (
+    normalized === "more info" ||
+    normalized === "more_info" ||
+    normalized === "request_more_info"
+  ) {
+    return (
+      <span className="badge bg-info-subtle text-info border border-info-subtle">
+        More Info
+      </span>
+    );
+  }
+
+  return (
+    <span className="badge bg-secondary-subtle text-secondary border border-secondary-subtle">
+      {status}
+    </span>
+  );
+}
+
+async function countRows(
+  tableName: string,
+  filter?: {
+    column: string;
+    values: string[];
+  }
+) {
+  let query = supabase.from(tableName).select("id", {
+    count: "exact",
+    head: true,
+  });
+
+  if (filter) {
+    query = query.in(filter.column, filter.values);
+  }
+
+  const { count, error } = await query;
+
+  if (error) {
+    console.warn(`Count error for ${tableName}:`, error.message);
+    return 0;
+  }
+
+  return count || 0;
+}
+
+async function countDistrictEnvironments(statusValues?: string[]) {
+  let query = supabase
+    .from("district_environments")
+    .select("id", {
+      count: "exact",
+      head: true,
+    })
+    .is("deleted_at", null);
+
+  if (statusValues && statusValues.length > 0) {
+    query = query.in("status", statusValues);
+  }
+
+  const { count, error } = await query;
+
+  if (error) {
+    console.warn("Count district_environments error:", error.message);
+    return 0;
+  }
+
+  return count || 0;
+}
+
 export default function SuperAdminDashboard() {
   const [loading, setLoading] = useState(true);
 
   const [totalStates, setTotalStates] = useState(0);
-  const [totalDistricts, setTotalDistricts] = useState(0);
+  const [totalRegisteredDistricts, setTotalRegisteredDistricts] = useState(0);
+  const [totalActiveEnvironments, setTotalActiveEnvironments] = useState(0);
   const [pendingApplications, setPendingApplications] = useState(0);
+  const [rejectedApplications, setRejectedApplications] = useState(0);
   const [totalUsers, setTotalUsers] = useState(0);
 
   const [applications, setApplications] = useState<DistrictApplication[]>([]);
@@ -51,33 +172,42 @@ export default function SuperAdminDashboard() {
 
     try {
       const [
-        statesResult,
-        districtsResult,
-        usersResult,
-        pendingResult,
+        statesCount,
+        registeredDistrictsCount,
+        activeEnvCount,
+        usersCount,
+        approvedAppCount,
+        pendingAppCount,
+        rejectedAppCount,
         applicationsResult,
         auditLogsResult,
-        approvedResult,
-        pendingStatusResult,
-        rejectedResult,
       ] = await Promise.all([
-        supabase.from("district_settings").select("state"),
+        countRows("states"),
+
+        // Ini baru betul untuk daerah yang telah register/approved dalam sistem.
+        countDistrictEnvironments(),
+
+        countDistrictEnvironments(["active", "Active", "Aktif"]),
+
+        countRows("system_users"),
+
+        countRows(APPLICATION_TABLE, {
+          column: "status",
+          values: ["approved", "Approved"],
+        }),
+
+        countRows(APPLICATION_TABLE, {
+          column: "status",
+          values: ["pending", "Pending"],
+        }),
+
+        countRows(APPLICATION_TABLE, {
+          column: "status",
+          values: ["rejected", "Rejected"],
+        }),
 
         supabase
-          .from("district_settings")
-          .select("*", { count: "exact", head: true }),
-
-        supabase
-          .from("system_users")
-          .select("*", { count: "exact", head: true }),
-
-        supabase
-          .from("district_applications")
-          .select("*", { count: "exact", head: true })
-          .ilike("status", "Pending"),
-
-        supabase
-          .from("district_applications")
+          .from(APPLICATION_TABLE)
           .select(
             "id, applicant_name, email, phone, state, district, organization, status, admin_note, created_at"
           )
@@ -91,50 +221,25 @@ export default function SuperAdminDashboard() {
           )
           .order("created_at", { ascending: false })
           .limit(5),
-
-        supabase
-          .from("district_applications")
-          .select("*", { count: "exact", head: true })
-          .ilike("status", "Approved"),
-
-        supabase
-          .from("district_applications")
-          .select("*", { count: "exact", head: true })
-          .ilike("status", "Pending"),
-
-        supabase
-          .from("district_applications")
-          .select("*", { count: "exact", head: true })
-          .ilike("status", "Rejected"),
       ]);
 
-      if (statesResult.error) throw statesResult.error;
-      if (districtsResult.error) throw districtsResult.error;
-      if (usersResult.error) throw usersResult.error;
-      if (pendingResult.error) throw pendingResult.error;
       if (applicationsResult.error) throw applicationsResult.error;
       if (auditLogsResult.error) throw auditLogsResult.error;
-      if (approvedResult.error) throw approvedResult.error;
-      if (pendingStatusResult.error) throw pendingStatusResult.error;
-      if (rejectedResult.error) throw rejectedResult.error;
 
-      const uniqueStates = new Set(
-        (statesResult.data || [])
-          .map((item: { state: any; }) => item.state)
-          .filter((state: any): state is string => Boolean(state))
-      );
+      setTotalStates(statesCount);
+      setTotalRegisteredDistricts(registeredDistrictsCount);
+      setTotalActiveEnvironments(activeEnvCount);
+      setTotalUsers(usersCount);
 
-      setTotalStates(uniqueStates.size);
-      setTotalDistricts(districtsResult.count || 0);
-      setTotalUsers(usersResult.count || 0);
-      setPendingApplications(pendingResult.count || 0);
+      setApprovedCount(approvedAppCount);
+      setPendingCount(pendingAppCount);
+      setRejectedCount(rejectedAppCount);
+
+      setPendingApplications(pendingAppCount);
+      setRejectedApplications(rejectedAppCount);
 
       setApplications(applicationsResult.data || []);
       setAuditLogs(auditLogsResult.data || []);
-
-      setApprovedCount(approvedResult.count || 0);
-      setPendingCount(pendingStatusResult.count || 0);
-      setRejectedCount(rejectedResult.count || 0);
     } catch (error: any) {
       console.error("Failed to fetch Super Admin dashboard:", error);
       alert(
@@ -164,82 +269,36 @@ export default function SuperAdminDashboard() {
     return Math.round((rejectedCount / totalApplicationStatus) * 100);
   }, [rejectedCount, totalApplicationStatus]);
 
-  function getStatusBadge(statusValue: string | null) {
-    const status = statusValue || "Unknown";
-    const normalized = status.toLowerCase();
-
-    if (normalized === "approved") {
-      return (
-        <span className="badge bg-success-subtle text-success border border-success-subtle">
-          Approved
-        </span>
-      );
-    }
-
-    if (normalized === "pending") {
-      return (
-        <span className="badge bg-warning-subtle text-warning border border-warning-subtle">
-          Pending
-        </span>
-      );
-    }
-
-    if (normalized === "rejected") {
-      return (
-        <span className="badge bg-danger-subtle text-danger border border-danger-subtle">
-          Rejected
-        </span>
-      );
-    }
-
-    if (normalized === "more info" || normalized === "more_info") {
-      return (
-        <span className="badge bg-info-subtle text-info border border-info-subtle">
-          More Info
-        </span>
-      );
-    }
-
-    return (
-      <span className="badge bg-secondary-subtle text-secondary border border-secondary-subtle">
-        {status}
-      </span>
-    );
-  }
-
-  function formatDate(dateValue: string) {
-    const date = new Date(dateValue);
-
-    if (Number.isNaN(date.getTime())) {
-      return "-";
-    }
-
-    return date.toLocaleDateString("ms-MY", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  }
-
   const applicationStatusItems = [
-    { label: "Approved", value: approvedPercent, color: "success" },
-    { label: "Pending", value: pendingPercent, color: "warning" },
-    { label: "Rejected", value: rejectedPercent, color: "danger" },
+    { label: "Approved", value: approvedPercent, count: approvedCount, color: "success" },
+    { label: "Pending", value: pendingPercent, count: pendingCount, color: "warning" },
+    { label: "Rejected", value: rejectedPercent, count: rejectedCount, color: "danger" },
   ];
 
   return (
     <DashboardLayout role="superadmin">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
         <div>
           <h2 className="fw-bold mb-1">Super Admin Dashboard</h2>
           <p className="text-muted mb-0">
-            Pantau permohonan daerah dan status keseluruhan sistem.
+            Pantau permohonan daerah, daerah berdaftar dan aktiviti sistem.
           </p>
         </div>
 
-        <Link to="/superadmin/applications" className="btn btn-success px-4">
-          Semak Permohonan
-        </Link>
+        <div className="d-flex gap-2">
+          <button
+            className="btn btn-outline-success px-4"
+            onClick={fetchDashboardData}
+            disabled={loading}
+          >
+            <i className="bi bi-arrow-clockwise me-1"></i>
+            Refresh
+          </button>
+
+          <Link to="/superadmin/applications" className="btn btn-success px-4">
+            Semak Permohonan
+          </Link>
+        </div>
       </div>
 
       {loading ? (
@@ -252,24 +311,34 @@ export default function SuperAdminDashboard() {
       ) : (
         <>
           <div className="row g-3">
-            <div className="col-md-3">
+            <div className="col-md-4 col-xl-2">
               <StatCard
-                title="Jumlah Negeri"
+                title="Negeri & Wilayah Persekutuan"
                 value={totalStates.toString()}
                 icon="bi-map"
+                color="success"
               />
             </div>
 
-            <div className="col-md-3">
+            <div className="col-md-4 col-xl-2">
               <StatCard
                 title="Daerah Berdaftar"
-                value={totalDistricts.toString()}
+                value={totalRegisteredDistricts.toString()}
                 icon="bi-building"
                 color="primary"
               />
             </div>
 
-            <div className="col-md-3">
+            <div className="col-md-4 col-xl-2">
+              <StatCard
+                title="Environment Aktif"
+                value={totalActiveEnvironments.toString()}
+                icon="bi-check-circle"
+                color="success"
+              />
+            </div>
+
+            <div className="col-md-4 col-xl-2">
               <StatCard
                 title="Pending"
                 value={pendingApplications.toString()}
@@ -278,7 +347,16 @@ export default function SuperAdminDashboard() {
               />
             </div>
 
-            <div className="col-md-3">
+            <div className="col-md-4 col-xl-2">
+              <StatCard
+                title="Rejected"
+                value={rejectedApplications.toString()}
+                icon="bi-x-circle"
+                color="danger"
+              />
+            </div>
+
+            <div className="col-md-4 col-xl-2">
               <StatCard
                 title="Pengguna Sistem"
                 value={totalUsers.toLocaleString()}
@@ -290,9 +368,14 @@ export default function SuperAdminDashboard() {
 
           <div className="row g-4 mt-2">
             <div className="col-lg-8">
-              <div className="card border-0 shadow-sm rounded-4">
+              <div className="card border-0 shadow-sm rounded-4 h-100">
                 <div className="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center">
-                  <h5 className="mb-0 fw-semibold">Permohonan Terkini</h5>
+                  <div>
+                    <h5 className="mb-0 fw-semibold">Permohonan Terkini</h5>
+                    <small className="text-muted">
+                      5 permohonan daerah terbaru.
+                    </small>
+                  </div>
 
                   <Link
                     to="/superadmin/applications"
@@ -324,31 +407,38 @@ export default function SuperAdminDashboard() {
                         </thead>
 
                         <tbody>
-                          {applications.map((application) => (
-                            <tr key={application.id}>
-                              <td>
-                                <div className="fw-semibold">
-                                  {application.applicant_name || "-"}
-                                </div>
-                                <small className="text-muted">
-                                  {application.email || "-"}
-                                </small>
-                              </td>
+                          {applications.map((application) => {
+                            const applicantName =
+                              application.applicant_name ||
+                              application.full_name ||
+                              "-";
 
-                              <td>{application.state || "-"}</td>
-                              <td>{application.district || "-"}</td>
-                              <td>{getStatusBadge(application.status)}</td>
+                            return (
+                              <tr key={application.id}>
+                                <td>
+                                  <div className="fw-semibold">
+                                    {applicantName}
+                                  </div>
+                                  <small className="text-muted">
+                                    {application.email || "-"}
+                                  </small>
+                                </td>
 
-                              <td className="text-end">
-                                <Link
-                                  to={`/superadmin/applications/${application.id}`}
-                                  className="btn btn-sm btn-outline-success rounded-pill px-3"
-                                >
-                                  View
-                                </Link>
-                              </td>
-                            </tr>
-                          ))}
+                                <td>{application.state || "-"}</td>
+                                <td>{application.district || "-"}</td>
+                                <td>{getStatusBadge(application.status)}</td>
+
+                                <td className="text-end">
+                                  <Link
+                                    to={`/superadmin/applications/${application.id}`}
+                                    className="btn btn-sm btn-outline-success rounded-pill px-3"
+                                  >
+                                    View
+                                  </Link>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -367,7 +457,10 @@ export default function SuperAdminDashboard() {
                   {applicationStatusItems.map((item) => (
                     <div className="mb-3" key={item.label}>
                       <div className="d-flex justify-content-between small mb-1">
-                        <span>{item.label}</span>
+                        <span>
+                          {item.label}{" "}
+                          <span className="text-muted">({item.count})</span>
+                        </span>
                         <span>{item.value}%</span>
                       </div>
 
@@ -389,8 +482,15 @@ export default function SuperAdminDashboard() {
               </div>
 
               <div className="card border-0 shadow-sm rounded-4">
-                <div className="card-header bg-white border-0 pt-4 px-4 fw-semibold">
-                  Aktiviti Sistem
+                <div className="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center">
+                  <span className="fw-semibold">Aktiviti Sistem</span>
+
+                  <Link
+                    to="/superadmin/audit-log"
+                    className="small text-success text-decoration-none"
+                  >
+                    Lihat Semua
+                  </Link>
                 </div>
 
                 <div className="card-body px-4">
@@ -410,7 +510,7 @@ export default function SuperAdminDashboard() {
 
                         <small className="text-muted">
                           {log.actor_name || "System"} •{" "}
-                          {formatDate(log.created_at)}
+                          {log.module || "Sistem"} • {formatDate(log.created_at)}
                         </small>
                       </div>
                     ))

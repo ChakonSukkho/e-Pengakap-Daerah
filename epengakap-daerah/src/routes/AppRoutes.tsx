@@ -10,6 +10,7 @@ import DistrictApplicationsPage from "../pages/superadmin/DistrictApplicationsPa
 import ApplicationDetailPage from "../pages/superadmin/ApplicationDetailPage";
 import DistrictManagementPage from "../pages/superadmin/DistrictManagementPage";
 import SystemUsersPage from "../pages/superadmin/SystemUsersPage";
+import DistrictDetailPage from "../pages/superadmin/DistrictDetailPage";
 import SystemAuditLogPage from "../pages/superadmin/SystemAuditLogPage";
 
 import DistrictDashboard from "../pages/district/DistrictDashboard";
@@ -84,6 +85,15 @@ export default function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={["Super Admin"]}>
             <DistrictManagementPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/superadmin/districts/:id"
+        element={
+          <ProtectedRoute allowedRoles={["Super Admin"]}>
+            <DistrictDetailPage />
           </ProtectedRoute>
         }
       />
