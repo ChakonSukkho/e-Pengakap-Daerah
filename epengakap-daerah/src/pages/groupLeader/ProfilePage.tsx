@@ -230,31 +230,46 @@ export default function ProfilePage() {
     setLoading(false);
   }
 
-  function validateForm() {
-    if (!form.full_name.trim()) {
-      alert("Sila isi nama penuh.");
-      return false;
-    }
+function validateForm() {
+  const fullName = form.full_name.trim();
+  const email = form.email.trim();
+  const phone = form.phone.trim();
+  const password = form.password.trim();
 
-    if (!form.email.trim()) {
-      alert("Sila isi email.");
-      return false;
-    }
-
-    if (!isValidEmail(form.email)) {
-      alert("Format email tidak sah.");
-      return false;
-    }
-
-    if (form.phone && !isValidMalaysiaPhone(form.phone)) {
-      alert(
-        "Nombor telefon tidak sah. Sila masukkan nombor Malaysia yang bermula dengan 0. Contoh: 012-345 6789."
-      );
-      return false;
-    }
-
-    return true;
+  if (!fullName) {
+    alert("Nama penuh wajib diisi.");
+    return false;
   }
+
+  if (fullName.length < 3) {
+    alert("Nama penuh mestilah sekurang-kurangnya 3 aksara.");
+    return false;
+  }
+
+  if (!email) {
+    alert("Email wajib diisi.");
+    return false;
+  }
+
+  if (!isValidEmail(email)) {
+    alert("Format email tidak sah.");
+    return false;
+  }
+
+  if (phone && !isValidMalaysiaPhone(phone)) {
+    alert(
+      "Nombor telefon tidak sah. Sila masukkan nombor Malaysia yang bermula dengan 0. Contoh: 012-345 6789."
+    );
+    return false;
+  }
+
+  if (password && password.length < 6) {
+    alert("Kata laluan mestilah sekurang-kurangnya 6 aksara.");
+    return false;
+  }
+
+  return true;
+}
 
 async function saveProfile() {
   if (!user?.id) {
@@ -262,23 +277,7 @@ async function saveProfile() {
     return;
   }
 
-  if (!form.full_name.trim()) {
-    alert("Nama penuh wajib diisi.");
-    return;
-  }
-
-  if (!form.email.trim()) {
-    alert("Email wajib diisi.");
-    return;
-  }
-
-  if (!isValidEmail(form.email.trim())) {
-    alert("Format email tidak sah.");
-    return;
-  }
-
-  if (!isValidMalaysiaPhone(form.phone)) {
-    alert("Format nombor telefon tidak sah.");
+  if (!validateForm()) {
     return;
   }
 
@@ -322,7 +321,7 @@ async function saveProfile() {
   const updatedLocalUser = {
     ...currentUser,
     full_name: payload.full_name,
-    name: payload.full_name, // localStorage sahaja, bukan database
+    name: payload.full_name,
     email: payload.email,
     phone: payload.phone,
   };
@@ -337,6 +336,8 @@ async function saveProfile() {
   setSaving(false);
   alert("Profil berjaya dikemaskini.");
 }
+
+
 
   if (loading) {
     return (
