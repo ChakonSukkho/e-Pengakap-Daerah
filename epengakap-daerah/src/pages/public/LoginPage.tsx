@@ -3,63 +3,165 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../../services/supabaseClient";
 import pengakapLogo from "../../assets/newLogoIcon.png";
 
+type SystemUser = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  password?: string | null;
+  role: string | null;
+  district: string | null;
+  district_environment_id: string | null;
+  group_id?: string | null;
+  group_name?: string | null;
+  status: string | null;
+  phone?: string | null;
+};
+
+type DistrictEnvironment = {
+  id: string;
+  district_commissioner_user_id: string | null;
+  district_id: string | null;
+  status: string | null;
+  deleted_at: string | null;
+};
+
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function normalizeRole(value?: string | null) {
+  return String(value || "").trim();
+}
+
+function isDistrictRole(role?: string | null) {
+  const normalized = normalizeRole(role);
+
+  return (
+    normalized === "Pesuruhjaya Daerah" ||
+    normalized === "Penolong Pesuruhjaya Daerah" ||
+    normalized === "Penolong Pesuruhjaya" ||
+    normalized === "Pemimpin Kumpulan" ||
+    normalized === "Penolong Pemimpin"
+  );
+}
+
+function getDashboardPath(role?: string | null) {
+  const normalized = normalizeRole(role);
+
+  switch (normalized) {
+    case "Super Admin":
+      return "/superadmin/dashboard";
+
+    case "Pesuruhjaya Daerah":
+      return "/district/dashboard";
+
+    case "Penolong Pesuruhjaya Daerah":
+    case "Penolong Pesuruhjaya":
+      return "/assistant-commissioner/dashboard";
+
+    case "Pemimpin Kumpulan":
+      return "/group-leader/dashboard";
+
+    case "Penolong Pemimpin":
+      return "/assistant-leader/dashboard";
+
+    default:
+      return "/";
+  }
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("pesuruhjaya@petaling.gov.my");
   const [password, setPassword] = useState("123456");
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function findDistrictEnvironment(user: SystemUser) {
+    if (user.district_environment_id) {
+      return user.district_environment_id;
+    }
+
+    if (user.role === "Pesuruhjaya Daerah") {
+      const { data: environmentByCommissioner, error } = await supabase
+        .from("district_environments")
+        .select("id, district_commissioner_user_id, district_id, status, deleted_at")
+        .eq("district_commissioner_user_id", user.id)
+        .is("deleted_at", null)
+        .maybeSingle<DistrictEnvironment>();
+
+      if (error) {
+        console.warn("Failed to find district environment:", error.message);
+      }
+
+      if (environmentByCommissioner?.id) {
+        return environmentByCommissioner.id;
+      }
+    }
+
+    return null;
+  }
 
   async function handleLogin() {
-    if (!email.trim() || !password.trim()) {
+    const cleanEmail = normalizeEmail(email);
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail || !cleanPassword) {
       alert("Sila isi email dan kata laluan.");
       return;
     }
 
-    const { data, error } = await supabase
-      .from("system_users")
-      .select("*")
-      .eq("email", email)
-      .eq("password", password)
-      .eq("status", "Aktif")
-      .maybeSingle()
+    setLoading(true);
 
-    if (error) {
-      console.error(error);
-      alert(error.message);
-      return;
-    }
+    try {
+      const { data, error } = await supabase
+        .from("system_users")
+        .select("*")
+        .eq("email", cleanEmail)
+        .eq("password", cleanPassword)
+        .in("status", ["Aktif", "active", "Active"])
+        .maybeSingle<SystemUser>();
 
-if (!data) {
-  alert("Email atau kata laluan tidak sah.");
-  return;
-}
+      if (error) throw error;
 
-    localStorage.setItem("user", JSON.stringify(data));
+      if (!data) {
+        alert("Email atau kata laluan tidak sah, atau akaun belum aktif.");
+        return;
+      }
 
-    switch (data.role) {
-      case "Super Admin":
-        navigate("/superadmin");
-        break;
+      const districtEnvironmentId = await findDistrictEnvironment(data);
 
-      case "Pesuruhjaya Daerah":
-        navigate("/district/dashboard");
-        break;
+      if (isDistrictRole(data.role) && !districtEnvironmentId) {
+        alert(
+          "Akaun ini belum dihubungkan dengan district environment. Sila hubungi Super Admin."
+        );
+        return;
+      }
 
-      case "Penolong Pesuruhjaya":
-        navigate("/assistant-commissioner/dashboard");
-        break;
+      const loginUser = {
+        id: data.id,
+        full_name: data.full_name,
+        name: data.full_name,
+        email: data.email,
+        role: data.role,
+        district: data.district,
+        district_environment_id: districtEnvironmentId,
+        group_id: data.group_id || null,
+        group_name: data.group_name || null,
+        status: data.status,
+        phone: data.phone || null,
+      };
 
-      case "Pemimpin Kumpulan":
-        navigate("/group-leader/dashboard");
-        break;
+      localStorage.setItem("user", JSON.stringify(loginUser));
+      localStorage.setItem("auth_user", JSON.stringify(loginUser));
 
-      case "Penolong Pemimpin":
-        navigate("/assistant-leader/dashboard");
-        break;
-
-      default:
-        navigate("/");
+      navigate(getDashboardPath(data.role));
+    } catch (error: any) {
+      console.error("Login error:", error);
+      alert(error?.message || "Gagal log masuk.");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -136,8 +238,8 @@ if (!data) {
 
                 <form
                   className="mt-4"
-                  onSubmit={(e) => {
-                    e.preventDefault();
+                  onSubmit={(event) => {
+                    event.preventDefault();
                     handleLogin();
                   }}
                 >
@@ -147,12 +249,14 @@ if (!data) {
                       <span className="input-group-text bg-white">
                         <i className="bi bi-envelope"></i>
                       </span>
+
                       <input
                         type="email"
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={(event) => setEmail(event.target.value)}
                         className="form-control"
                         placeholder="user@example.com"
+                        disabled={loading}
                       />
                     </div>
                   </div>
@@ -160,12 +264,15 @@ if (!data) {
                   <div className="mb-3">
                     <div className="d-flex justify-content-between">
                       <label className="form-label">Kata Laluan</label>
-                      <a
-                        href="#"
-                        className="small text-success text-decoration-none"
+                      <button
+                        type="button"
+                        className="btn btn-link p-0 small text-success text-decoration-none"
+                        onClick={() =>
+                          alert("Fungsi lupa kata laluan akan dibangunkan kemudian.")
+                        }
                       >
                         Lupa kata laluan?
-                      </a>
+                      </button>
                     </div>
 
                     <div className="input-group">
@@ -176,21 +283,21 @@ if (!data) {
                       <input
                         type={showPassword ? "text" : "password"}
                         value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        onChange={(event) => setPassword(event.target.value)}
                         className="form-control"
                         placeholder="Masukkan kata laluan"
+                        disabled={loading}
                       />
 
                       <button
                         type="button"
                         className="btn btn-outline-secondary"
                         onClick={() => setShowPassword(!showPassword)}
+                        disabled={loading}
                       >
                         <i
                           className={`bi ${
-                            showPassword
-                              ? "bi-eye-slash"
-                              : "bi-eye"
+                            showPassword ? "bi-eye-slash" : "bi-eye"
                           }`}
                         ></i>
                       </button>
@@ -202,14 +309,28 @@ if (!data) {
                       className="form-check-input"
                       type="checkbox"
                       id="remember"
+                      disabled={loading}
                     />
                     <label className="form-check-label small" htmlFor="remember">
                       Ingat saya
                     </label>
                   </div>
 
-                  <button type="submit" className="btn btn-success w-100">
-                    Log Masuk <i className="bi bi-arrow-right ms-1"></i>
+                  <button
+                    type="submit"
+                    className="btn btn-success w-100"
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2"></span>
+                        Sedang log masuk...
+                      </>
+                    ) : (
+                      <>
+                        Log Masuk <i className="bi bi-arrow-right ms-1"></i>
+                      </>
+                    )}
                   </button>
 
                   <div className="alert alert-light border mt-4 mb-0">

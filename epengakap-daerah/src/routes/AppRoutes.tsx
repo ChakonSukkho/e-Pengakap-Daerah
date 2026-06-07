@@ -9,8 +9,9 @@ import SuperAdminDashboard from "../pages/superadmin/SuperAdminDashboard";
 import DistrictApplicationsPage from "../pages/superadmin/DistrictApplicationsPage";
 import ApplicationDetailPage from "../pages/superadmin/ApplicationDetailPage";
 import DistrictManagementPage from "../pages/superadmin/DistrictManagementPage";
-import SystemUsersPage from "../pages/superadmin/SystemUsersPage";
 import DistrictDetailPage from "../pages/superadmin/DistrictDetailPage";
+import SystemUsersPage from "../pages/superadmin/SystemUsersPage";
+import MasterDataPage from "../pages/superadmin/MasterDataPage";
 import SystemAuditLogPage from "../pages/superadmin/SystemAuditLogPage";
 
 import DistrictDashboard from "../pages/district/DistrictDashboard";
@@ -34,7 +35,6 @@ import ActivitiesPage from "../pages/groupLeader/ActivitiesPage";
 import ProfilePage from "../pages/groupLeader/ProfilePage";
 import AttendancePage from "../pages/groupLeader/AttendancePage";
 import BadgesPage from "../pages/groupLeader/BadgesPage";
-
 
 import AssistantLeaderDashboard from "../pages/assistantLeader/AssistantLeaderDashboard";
 import AssistantMembersPage from "../pages/assistantLeader/AssistantMembersPage";
@@ -62,6 +62,16 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
+      <Route
+        path="/superadmin/dashboard"
+        element={
+          <ProtectedRoute allowedRoles={["Super Admin"]}>
+            <SuperAdminDashboard />
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/superadmin/applications"
         element={
@@ -108,7 +118,25 @@ export default function AppRoutes() {
       />
 
       <Route
+        path="/superadmin/master-data"
+        element={
+          <ProtectedRoute allowedRoles={["Super Admin"]}>
+            <MasterDataPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/superadmin/audit"
+        element={
+          <ProtectedRoute allowedRoles={["Super Admin"]}>
+            <SystemAuditLogPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/superadmin/audit-log"
         element={
           <ProtectedRoute allowedRoles={["Super Admin"]}>
             <SystemAuditLogPage />
@@ -125,6 +153,7 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
       <Route
         path="/district/users"
         element={
@@ -133,7 +162,7 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      
+
       <Route
         path="/district/groups"
         element={
@@ -142,7 +171,7 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      
+
       <Route
         path="/district/members"
         element={
@@ -151,7 +180,7 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      
+
       <Route
         path="/district/settings"
         element={
@@ -169,9 +198,18 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      
+
       <Route
         path="/district/audit"
+        element={
+          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
+            <AuditLogPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/district/audit-log"
         element={
           <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
             <AuditLogPage />
@@ -183,7 +221,12 @@ export default function AppRoutes() {
       <Route
         path="/assistant-commissioner/dashboard"
         element={
-          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
+          <ProtectedRoute
+            allowedRoles={[
+              "Penolong Pesuruhjaya",
+              "Penolong Pesuruhjaya Daerah",
+            ]}
+          >
             <AssistantCommissionerDashboard />
           </ProtectedRoute>
         }
@@ -192,7 +235,12 @@ export default function AppRoutes() {
       <Route
         path="/assistant-commissioner/members"
         element={
-          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
+          <ProtectedRoute
+            allowedRoles={[
+              "Penolong Pesuruhjaya",
+              "Penolong Pesuruhjaya Daerah",
+            ]}
+          >
             <ACMemberManagementPage />
           </ProtectedRoute>
         }
@@ -201,7 +249,12 @@ export default function AppRoutes() {
       <Route
         path="/assistant-commissioner/groups"
         element={
-          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
+          <ProtectedRoute
+            allowedRoles={[
+              "Penolong Pesuruhjaya",
+              "Penolong Pesuruhjaya Daerah",
+            ]}
+          >
             <ACGroupManagementPage />
           </ProtectedRoute>
         }
@@ -210,16 +263,26 @@ export default function AppRoutes() {
       <Route
         path="/assistant-commissioner/activities"
         element={
-          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
+          <ProtectedRoute
+            allowedRoles={[
+              "Penolong Pesuruhjaya",
+              "Penolong Pesuruhjaya Daerah",
+            ]}
+          >
             <AssistantCommissionerActivitiesPage />
           </ProtectedRoute>
         }
       />
-      
+
       <Route
         path="/assistant-commissioner/profile"
         element={
-          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
+          <ProtectedRoute
+            allowedRoles={[
+              "Penolong Pesuruhjaya",
+              "Penolong Pesuruhjaya Daerah",
+            ]}
+          >
             <AssistantCommissionerProfilePage />
           </ProtectedRoute>
         }
@@ -228,7 +291,12 @@ export default function AppRoutes() {
       <Route
         path="/assistant-commissioner/reports"
         element={
-          <ProtectedRoute allowedRoles={["Penolong Pesuruhjaya"]}>
+          <ProtectedRoute
+            allowedRoles={[
+              "Penolong Pesuruhjaya",
+              "Penolong Pesuruhjaya Daerah",
+            ]}
+          >
             <ReportsPage />
           </ProtectedRoute>
         }
@@ -283,14 +351,13 @@ export default function AppRoutes() {
       <Route
         path="/group-leader/attendance"
         element={
-          <ProtectedRoute
-            allowedRoles={["Pemimpin Kumpulan"]}
-          >
+          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
             <AttendancePage />
           </ProtectedRoute>
         }
       />
-      
+
+      {/* Assistant Leader */}
       <Route
         path="/assistant-leader/dashboard"
         element={
@@ -299,7 +366,7 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      
+
       <Route
         path="/assistant-leader/members"
         element={
@@ -308,7 +375,7 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      
+
       <Route
         path="/assistant-leader/activities"
         element={
@@ -317,7 +384,7 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      
+
       <Route
         path="/assistant-leader/profile"
         element={
@@ -327,6 +394,7 @@ export default function AppRoutes() {
         }
       />
 
+      {/* Shared */}
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
     </Routes>
   );

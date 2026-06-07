@@ -5,7 +5,6 @@ import { supabase } from "../../services/supabaseClient";
 type SystemUser = {
   id: string;
   full_name: string | null;
-  name?: string | null;
   email: string | null;
   phone: string | null;
   role: string | null;
@@ -161,9 +160,20 @@ function roleRequiresTauliah(role: string) {
 }
 
 function normalizeStatus(status?: string | null) {
-  if (status === "Active") return "Aktif";
-  if (status === "Inactive") return "Tidak Aktif";
-  if (status === "Suspended") return "Digantung";
+  const value = String(status || "").trim();
+
+  if (value === "Active") return "Aktif";
+  if (value === "active") return "Aktif";
+  if (value === "aktif") return "Aktif";
+
+  if (value === "Inactive") return "Tidak Aktif";
+  if (value === "inactive") return "Tidak Aktif";
+  if (value === "tidak aktif") return "Tidak Aktif";
+
+  if (value === "Suspended") return "Digantung";
+  if (value === "suspended") return "Digantung";
+  if (value === "digantung") return "Digantung";
+
   return status || "Aktif";
 }
 
@@ -178,7 +188,11 @@ function normalizeTauliahStatus(value?: string | null) {
 function formatDate(value?: string | null) {
   if (!value) return "-";
 
-  return new Date(value).toLocaleDateString("ms-MY", {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleDateString("ms-MY", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -208,7 +222,7 @@ async function addAuditLog(
     const currentUser = getCurrentUser();
 
     await supabase.from("audit_logs").insert({
-      actor_name: currentUser.full_name || currentUser.name || "Unknown User",
+      actor_name: currentUser.full_name || "Unknown User",
       actor_role: currentUser.role || "Unknown Role",
       action,
       module: "Pengurusan Pengguna",
@@ -271,9 +285,30 @@ export default function UserManagementPage() {
   });
 
   useEffect(() => {
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      setLoading(false);
+      return;
+    }
+
     fetchUsers();
     fetchGroups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function applyDistrictScope(query: any) {
+    if (districtEnvironmentId) {
+      return query.eq("district_environment_id", districtEnvironmentId);
+    }
+
+    if (district) {
+      return query.eq("district", district);
+    }
+
+    return query;
+  }
 
   async function fetchUsers() {
     setLoading(true);
@@ -285,11 +320,7 @@ export default function UserManagementPage() {
       .not("role", "in", '("Super Admin","Pesuruhjaya Daerah","District")')
       .order("created_at", { ascending: false });
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    } else if (district) {
-      query = query.eq("district", district);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
@@ -313,11 +344,7 @@ export default function UserManagementPage() {
       .is("deleted_at", null)
       .order("group_name", { ascending: true });
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    } else if (district) {
-      query = query.eq("district", district);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
@@ -345,7 +372,6 @@ export default function UserManagementPage() {
       const matchSearch =
         !keyword ||
         (user.full_name || "").toLowerCase().includes(keyword) ||
-        (user.name || "").toLowerCase().includes(keyword) ||
         (user.email || "").toLowerCase().includes(keyword) ||
         (user.role || "").toLowerCase().includes(keyword) ||
         (user.group_name || "").toLowerCase().includes(keyword) ||
@@ -410,6 +436,13 @@ export default function UserManagementPage() {
   }
 
   function openAddModal() {
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      return;
+    }
+
     resetForm();
     setShowUserModal(true);
   }
@@ -426,7 +459,7 @@ export default function UserManagementPage() {
     setEditingUser(user);
 
     setForm({
-      full_name: user.full_name || user.name || "",
+      full_name: user.full_name || "",
       email: user.email || "",
       phone: formatMalaysiaPhone(user.phone || ""),
       role,
@@ -456,6 +489,7 @@ export default function UserManagementPage() {
   }
 
   async function checkDuplicateEmail(email: string, ignoreUserId?: string) {
+    // Email login patut unik seluruh sistem.
     let query = supabase
       .from("system_users")
       .select("id")
@@ -478,6 +512,13 @@ export default function UserManagementPage() {
   }
 
   function validateForm() {
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      return false;
+    }
+
     if (!form.full_name.trim()) {
       alert("Sila isi nama penuh pengguna.");
       return false;
@@ -502,6 +543,11 @@ export default function UserManagementPage() {
 
     if (!form.role) {
       alert("Sila pilih role pengguna.");
+      return false;
+    }
+
+    if (form.role === "Super Admin" || form.role === "Pesuruhjaya Daerah") {
+      alert("Role ini tidak boleh dicipta melalui modul daerah.");
       return false;
     }
 
@@ -599,7 +645,6 @@ export default function UserManagementPage() {
 
     const payload: Record<string, any> = {
       full_name: form.full_name.trim(),
-      name: form.full_name.trim(),
       email: form.email.trim().toLowerCase(),
       phone: normalizeMalaysiaPhone(form.phone) || null,
       role: form.role,
@@ -629,10 +674,14 @@ export default function UserManagementPage() {
     }
 
     if (editingUser) {
-      const { error } = await supabase
+      let query = supabase
         .from("system_users")
         .update(payload)
         .eq("id", editingUser.id);
+
+      query = applyDistrictScope(query);
+
+      const { error } = await query;
 
       if (error) {
         alert(error.message);
@@ -679,13 +728,17 @@ export default function UserManagementPage() {
 
     setSaving(true);
 
-    const { error } = await supabase
+    let query = supabase
       .from("system_users")
       .update({
         status: "Tidak Aktif",
         updated_at: new Date().toISOString(),
       })
       .eq("id", deactivateTarget.id);
+
+    query = applyDistrictScope(query);
+
+    const { error } = await query;
 
     if (error) {
       alert(error.message);
@@ -695,9 +748,7 @@ export default function UserManagementPage() {
 
     await addAuditLog(
       "DEACTIVATE",
-      `Nyahaktif pengguna: ${
-        deactivateTarget.full_name || deactivateTarget.name || "-"
-      }`,
+      `Nyahaktif pengguna: ${deactivateTarget.full_name || "-"}`,
       deactivateTarget.id
     );
 
@@ -709,7 +760,7 @@ export default function UserManagementPage() {
 
   return (
     <DashboardLayout role="district">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
         <div>
           <h2 className="fw-bold mb-1">Pengurusan Pengguna</h2>
           <p className="text-muted mb-0">
@@ -771,6 +822,7 @@ export default function UserManagementPage() {
                 <span className="input-group-text bg-white">
                   <i className="bi bi-search"></i>
                 </span>
+
                 <input
                   className="form-control"
                   placeholder="Cari nama, email, phone, tauliah..."
@@ -887,7 +939,7 @@ export default function UserManagementPage() {
                 </tr>
               ) : (
                 filteredUsers.map((user) => {
-                  const name = user.full_name || user.name || "-";
+                  const name = user.full_name || "-";
                   const role = normalizeRole(user.role);
                   const tauliahType = normalizeTauliahType(user.tauliah_type);
                   const status = normalizeStatus(user.status);
@@ -1035,6 +1087,7 @@ export default function UserManagementPage() {
                     setShowUserModal(false);
                     resetForm();
                   }}
+                  disabled={saving}
                 ></button>
               </div>
 
@@ -1061,6 +1114,7 @@ export default function UserManagementPage() {
                                 })
                               }
                               placeholder="Nama penuh pengguna"
+                              disabled={saving}
                             />
                           </div>
 
@@ -1074,6 +1128,7 @@ export default function UserManagementPage() {
                                 setForm({ ...form, email: e.target.value })
                               }
                               placeholder="email@example.com"
+                              disabled={saving}
                             />
                           </div>
 
@@ -1090,6 +1145,7 @@ export default function UserManagementPage() {
                                 })
                               }
                               placeholder="012-345 6789"
+                              disabled={saving}
                             />
                           </div>
 
@@ -1099,6 +1155,7 @@ export default function UserManagementPage() {
                               className="form-select"
                               value={form.role}
                               onChange={(e) => handleRoleChange(e.target.value)}
+                              disabled={saving}
                             >
                               {ROLE_OPTIONS.map((role) => (
                                 <option key={role}>{role}</option>
@@ -1125,6 +1182,7 @@ export default function UserManagementPage() {
                                     group_name: selectedGroup?.group_name || "",
                                   });
                                 }}
+                                disabled={saving}
                               >
                                 <option value="">Pilih Kumpulan</option>
 
@@ -1148,6 +1206,7 @@ export default function UserManagementPage() {
                               onChange={(e) =>
                                 setForm({ ...form, status: e.target.value })
                               }
+                              disabled={saving}
                             >
                               {STATUS_OPTIONS.map((status) => (
                                 <option key={status}>{status}</option>
@@ -1169,6 +1228,7 @@ export default function UserManagementPage() {
                                 setForm({ ...form, password: e.target.value })
                               }
                               placeholder="123456"
+                              disabled={saving}
                             />
                           </div>
 
@@ -1182,6 +1242,7 @@ export default function UserManagementPage() {
                                 setForm({ ...form, notes: e.target.value })
                               }
                               placeholder="Catatan tambahan jika perlu"
+                              disabled={saving}
                             ></textarea>
                           </div>
                         </div>
@@ -1227,6 +1288,7 @@ export default function UserManagementPage() {
                                 onChange={(e) =>
                                   handleTauliahTypeChange(e.target.value)
                                 }
+                                disabled={saving}
                               >
                                 {TAULIAH_TYPE_OPTIONS.map((type) => (
                                   <option key={type}>{type}</option>
@@ -1239,7 +1301,9 @@ export default function UserManagementPage() {
                               <input
                                 className="form-control"
                                 value={form.tauliah_no}
-                                disabled={form.tauliah_type === "Tiada"}
+                                disabled={
+                                  form.tauliah_type === "Tiada" || saving
+                                }
                                 onChange={(e) =>
                                   setForm({
                                     ...form,
@@ -1258,7 +1322,9 @@ export default function UserManagementPage() {
                                 type="date"
                                 className="form-control"
                                 value={form.tauliah_date}
-                                disabled={form.tauliah_type === "Tiada"}
+                                disabled={
+                                  form.tauliah_type === "Tiada" || saving
+                                }
                                 onChange={(e) =>
                                   setForm({
                                     ...form,
@@ -1296,6 +1362,7 @@ export default function UserManagementPage() {
                                   })
                                 }
                                 placeholder="SIJIL-001"
+                                disabled={saving}
                               />
                             </div>
 
@@ -1311,6 +1378,7 @@ export default function UserManagementPage() {
                                   })
                                 }
                                 placeholder="PGT-001"
+                                disabled={saving}
                               />
                             </div>
                           </div>
@@ -1474,13 +1542,11 @@ export default function UserManagementPage() {
                     className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold mx-auto mb-2"
                     style={{ width: 72, height: 72, fontSize: 24 }}
                   >
-                    {getInitials(
-                      selectedUser.full_name || selectedUser.name || "-"
-                    )}
+                    {getInitials(selectedUser.full_name || "-")}
                   </div>
 
                   <h5 className="fw-bold mb-0">
-                    {selectedUser.full_name || selectedUser.name || "-"}
+                    {selectedUser.full_name || "-"}
                   </h5>
 
                   <small className="text-muted">
@@ -1629,6 +1695,7 @@ export default function UserManagementPage() {
                     setShowDeactivateModal(false);
                     setDeactivateTarget(null);
                   }}
+                  disabled={saving}
                 ></button>
               </div>
 
@@ -1637,9 +1704,7 @@ export default function UserManagementPage() {
                   Adakah anda pasti mahu nyahaktif pengguna ini?
                 </p>
 
-                <strong>
-                  {deactivateTarget.full_name || deactivateTarget.name || "-"}
-                </strong>
+                <strong>{deactivateTarget.full_name || "-"}</strong>
 
                 <p className="text-muted small mt-2 mb-0">
                   Akaun tidak dipadam kekal. Status akan ditukar kepada Tidak

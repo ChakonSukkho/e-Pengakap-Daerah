@@ -20,6 +20,7 @@ const menus: Record<RoleType, MenuItem[]> = {
     { to: "/superadmin/applications", label: "Permohonan Daerah", icon: "bi-file-earmark-check" },
     { to: "/superadmin/districts", label: "Senarai Daerah", icon: "bi-building" },
     { to: "/superadmin/users", label: "Pengguna Sistem", icon: "bi-person-gear" },
+    { to: "/superadmin/master-data", label: "Data Induk", icon: "bi-database" },
     { to: "/superadmin/audit", label: "Log Audit", icon: "bi-journal-text" },
   ],
   district: [

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabaseClient";
 
@@ -70,11 +71,15 @@ type AuditLogRow = {
 };
 
 function getCurrentUser() {
-  return JSON.parse(
-    localStorage.getItem("user") ||
-      localStorage.getItem("auth_user") ||
-      "{}"
-  );
+  try {
+    return JSON.parse(
+      localStorage.getItem("user") ||
+        localStorage.getItem("auth_user") ||
+        "{}"
+    );
+  } catch {
+    return {};
+  }
 }
 
 function getUserDistrict() {
@@ -103,7 +108,15 @@ function normalizeStatus(status?: string | null) {
   const value = String(status || "").trim().toLowerCase();
 
   if (value === "aktif" || value === "active") return "Aktif";
-  if (value === "tidak aktif" || value === "inactive") return "Tidak Aktif";
+  if (
+    value === "tidak aktif" ||
+    value === "inactive" ||
+    value === "suspended" ||
+    value === "digantung"
+  ) {
+    return "Tidak Aktif";
+  }
+
   if (value === "archived" || value === "arkib") return "Arkib";
 
   return status || "-";
@@ -116,16 +129,23 @@ function isActive(status?: string | null) {
 
 function isInactive(status?: string | null) {
   const value = String(status || "").trim().toLowerCase();
-  return value === "tidak aktif" || value === "inactive";
+
+  return (
+    value === "tidak aktif" ||
+    value === "inactive" ||
+    value === "suspended" ||
+    value === "digantung"
+  );
 }
 
 function normalizeRole(role?: string | null) {
-  if (!role) return "-";
+  const value = String(role || "").trim();
 
-  if (role === "Penolong Pesuruhjaya") return "Penolong Pesuruhjaya Daerah";
-  if (role === "District") return "Pesuruhjaya Daerah";
+  if (!value) return "-";
+  if (value === "Penolong Pesuruhjaya") return "Penolong Pesuruhjaya Daerah";
+  if (value === "District") return "Pesuruhjaya Daerah";
 
-  return role;
+  return value;
 }
 
 function getMemberCategory(member: MemberRow) {
@@ -143,7 +163,11 @@ function getActivityDate(activity: ActivityRow) {
 function formatDate(value?: string | null) {
   if (!value) return "-";
 
-  return new Date(value).toLocaleDateString("ms-MY", {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleDateString("ms-MY", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -153,7 +177,11 @@ function formatDate(value?: string | null) {
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
 
-  return new Date(value).toLocaleString("ms-MY", {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleString("ms-MY", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -234,15 +262,31 @@ export default function DistrictDashboard() {
 
   useEffect(() => {
     loadDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function applyDistrictScope(query: any) {
+    if (districtEnvironmentId) {
+      return query.eq("district_environment_id", districtEnvironmentId);
+    }
+
+    if (district) {
+      return query.eq("district", district);
+    }
 
     return query;
   }
 
   async function loadDashboard() {
     setLoading(true);
+
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      setLoading(false);
+      return;
+    }
 
     await Promise.all([
       fetchDistrictSettings(),
@@ -257,37 +301,71 @@ export default function DistrictDashboard() {
   }
 
   async function fetchDistrictSettings() {
-    let query = supabase.from("district_settings").select("*").limit(1);
+    try {
+      let query = supabase.from("district_settings").select("*").limit(1);
 
-    if (district) {
-      query = query.eq("district", district);
-    }
+      if (districtEnvironmentId) {
+        query = query.eq("district_environment_id", districtEnvironmentId);
+      } else if (district) {
+        query = query.eq("district", district);
+      }
 
-    const { data, error } = await query.maybeSingle();
+      const { data, error } = await query.maybeSingle();
 
-    if (!error && data) {
-      setOfficialName(data.official_name || "");
-      setEnvironmentStatus(normalizeStatus(data.status));
+      if (error) {
+        console.warn("District settings error:", error.message);
+        return;
+      }
+
+      if (data) {
+        setOfficialName(data.official_name || "");
+        setEnvironmentStatus(normalizeStatus(data.status));
+        return;
+      }
+
+      // Fallback kepada district_environments kalau district_settings belum wujud.
+      if (districtEnvironmentId) {
+        const { data: environmentData, error: environmentError } = await supabase
+          .from("district_environments")
+          .select("official_name, status")
+          .eq("id", districtEnvironmentId)
+          .maybeSingle();
+
+        if (!environmentError && environmentData) {
+          setOfficialName(environmentData.official_name || "");
+          setEnvironmentStatus(normalizeStatus(environmentData.status));
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to fetch district settings:", error);
     }
   }
 
-async function fetchMembers() {
-  const { data, error } = await supabase
-    .from("members")
-    .select("*")
-    .is("deleted_at", null);
+  async function fetchMembers() {
+    let query = supabase
+      .from("members")
+      .select("*")
+      .is("deleted_at", null);
 
-  if (error) {
-    console.error(error.message);
-    setMembers([]);
-    return;
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error(error.message);
+      setMembers([]);
+      return;
+    }
+
+    setMembers(data || []);
   }
-
-  setMembers(data || []);
-}
 
   async function fetchGroups() {
-    let query = supabase.from("groups").select("*").is("deleted_at", null);
+    let query = supabase
+      .from("groups")
+      .select("*")
+      .is("deleted_at", null);
+
     query = applyDistrictScope(query);
 
     const { data, error } = await query;
@@ -302,13 +380,12 @@ async function fetchMembers() {
   }
 
   async function fetchUsers() {
-    let query = supabase.from("system_users").select("*").is("deleted_at", null);
+    let query = supabase
+      .from("system_users")
+      .select("*")
+      .is("deleted_at", null);
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    } else if (district) {
-      query = query.eq("district", district);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
@@ -321,20 +398,24 @@ async function fetchMembers() {
     setUsers(data || []);
   }
 
-async function fetchActivities() {
-  const { data, error } = await supabase
-    .from("activities")
-    .select("*")
-    .order("created_at", { ascending: false });
+  async function fetchActivities() {
+    let query = supabase
+      .from("activities")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error(error.message);
-    setActivities([]);
-    return;
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error(error.message);
+      setActivities([]);
+      return;
+    }
+
+    setActivities(data || []);
   }
-
-  setActivities(data || []);
-}
 
   async function fetchAuditLogs() {
     let query = supabase
@@ -343,9 +424,7 @@ async function fetchActivities() {
       .order("created_at", { ascending: false })
       .limit(5);
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
@@ -435,8 +514,14 @@ async function fetchActivities() {
     return activities
       .filter((activity) => {
         const dateValue = getActivityDate(activity);
+
         if (!dateValue) return false;
-        return new Date(dateValue) >= now;
+
+        const activityDate = new Date(dateValue);
+
+        if (Number.isNaN(activityDate.getTime())) return false;
+
+        return activityDate >= now;
       })
       .sort(
         (a, b) =>
@@ -563,20 +648,20 @@ async function fetchActivities() {
               </div>
 
               <div className="d-grid gap-2">
-                <a href="/district/users" className="btn btn-outline-success">
+                <Link to="/district/users" className="btn btn-outline-success">
                   <i className="bi bi-person-plus me-1"></i>
                   Tambah Pengguna
-                </a>
+                </Link>
 
-                <a href="/district/groups" className="btn btn-outline-success">
+                <Link to="/district/groups" className="btn btn-outline-success">
                   <i className="bi bi-building-add me-1"></i>
                   Urus Kumpulan
-                </a>
+                </Link>
 
-                <a href="/district/members" className="btn btn-success">
+                <Link to="/district/members" className="btn btn-success">
                   <i className="bi bi-people me-1"></i>
                   Urus Ahli
-                </a>
+                </Link>
               </div>
 
               <hr />
@@ -641,7 +726,9 @@ async function fetchActivities() {
             <div className="card-body p-4">
               <div className="d-flex justify-content-between align-items-center mb-4">
                 <div>
-                  <h5 className="fw-bold mb-1">Pecahan Ahli Mengikut Kategori</h5>
+                  <h5 className="fw-bold mb-1">
+                    Pecahan Ahli Mengikut Kategori
+                  </h5>
                   <p className="text-muted small mb-0">
                     Ringkasan kategori ahli Pengakap.
                   </p>
@@ -769,12 +856,12 @@ async function fetchActivities() {
                   </p>
                 </div>
 
-                <a
-                  href="/district/activities"
+                <Link
+                  to="/district/activities"
                   className="btn btn-sm btn-outline-success"
                 >
                   Lihat Semua
-                </a>
+                </Link>
               </div>
 
               {upcomingActivities.length === 0 ? (
@@ -830,12 +917,12 @@ async function fetchActivities() {
                   </p>
                 </div>
 
-                <a
-                  href="/district/groups"
+                <Link
+                  to="/district/groups"
                   className="btn btn-sm btn-outline-success"
                 >
                   Lihat Semua
-                </a>
+                </Link>
               </div>
 
               {recentGroups.length === 0 ? (
@@ -894,12 +981,12 @@ async function fetchActivities() {
                   </p>
                 </div>
 
-                <a
-                  href="/district/audit-log"
+                <Link
+                  to="/district/audit-log"
                   className="btn btn-sm btn-outline-success"
                 >
                   Lihat Audit Log
-                </a>
+                </Link>
               </div>
 
               {auditLogs.length === 0 ? (

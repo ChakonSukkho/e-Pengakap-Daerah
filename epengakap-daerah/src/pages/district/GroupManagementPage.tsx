@@ -11,7 +11,11 @@ type ScoutGroup = {
   leader_name: string | null;
   total_members: number;
   status: string;
+  district?: string | null;
+  district_environment_id?: string | null;
   created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
 };
 
 type LeaderUser = {
@@ -20,6 +24,8 @@ type LeaderUser = {
   email: string | null;
   role: string;
   status: string;
+  district?: string | null;
+  district_environment_id?: string | null;
 };
 
 type GroupForm = {
@@ -30,6 +36,53 @@ type GroupForm = {
   total_members: string;
   status: string;
 };
+
+function getCurrentUser() {
+  try {
+    return JSON.parse(
+      localStorage.getItem("user") ||
+        localStorage.getItem("auth_user") ||
+        "{}"
+    );
+  } catch {
+    return {};
+  }
+}
+
+function normalizeStatus(status?: string | null) {
+  const value = String(status || "").trim().toLowerCase();
+
+  if (value === "aktif" || value === "active") return "Aktif";
+
+  if (
+    value === "tidak aktif" ||
+    value === "inactive" ||
+    value === "suspended" ||
+    value === "digantung"
+  ) {
+    return "Tidak Aktif";
+  }
+
+  return status || "Aktif";
+}
+
+function isActive(status?: string | null) {
+  return normalizeStatus(status) === "Aktif";
+}
+
+function formatDate(date?: string | null) {
+  if (!date) return "-";
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) return "-";
+
+  return parsedDate.toLocaleDateString("ms-MY", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 export default function GroupManagementPage() {
   const [groups, setGroups] = useState<ScoutGroup[]>([]);
@@ -61,23 +114,60 @@ export default function GroupManagementPage() {
     status: "Aktif",
   });
 
+  const currentUser = useMemo(() => getCurrentUser(), []);
+
+  const districtEnvironmentId = currentUser.district_environment_id || null;
+
+  const district =
+    currentUser.district ||
+    currentUser.district_name ||
+    currentUser.daerah ||
+    null;
+
   useEffect(() => {
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      setLoading(false);
+      return;
+    }
+
     fetchGroups();
     fetchActiveGroupLeaders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function applyDistrictScope(query: any) {
+    if (districtEnvironmentId) {
+      return query.eq("district_environment_id", districtEnvironmentId);
+    }
+
+    if (district) {
+      return query.eq("district", district);
+    }
+
+    return query;
+  }
 
   async function fetchGroups() {
     setLoading(true);
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("groups")
       .select(
-        "id, group_name, school_name, leader_user_id, leader_name, total_members, status, created_at"
+        "id, group_name, school_name, leader_user_id, leader_name, total_members, status, district, district_environment_id, created_at, updated_at, deleted_at"
       )
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
+
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
 
     if (error) {
       alert(error.message);
+      setGroups([]);
       setLoading(false);
       return;
     }
@@ -87,15 +177,21 @@ export default function GroupManagementPage() {
   }
 
   async function fetchActiveGroupLeaders() {
-    const { data, error } = await supabase
+    let query = supabase
       .from("system_users")
-      .select("id, full_name, email, role, status")
+      .select("id, full_name, email, role, status, district, district_environment_id")
       .in("role", ["Pemimpin Kumpulan", "group_leader"])
       .in("status", ["Aktif", "active"])
+      .is("deleted_at", null)
       .order("full_name", { ascending: true });
+
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
 
     if (error) {
       alert(error.message);
+      setLeaders([]);
       return;
     }
 
@@ -103,7 +199,7 @@ export default function GroupManagementPage() {
   }
 
   const filteredGroups = useMemo(() => {
-    const keyword = search.toLowerCase();
+    const keyword = search.toLowerCase().trim();
 
     return groups.filter((group) => {
       return (
@@ -116,6 +212,7 @@ export default function GroupManagementPage() {
 
   function resetForm() {
     setEditingGroup(null);
+
     setForm({
       group_name: "",
       school_name: "",
@@ -127,6 +224,13 @@ export default function GroupManagementPage() {
   }
 
   function openAddModal() {
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      return;
+    }
+
     resetForm();
     setShowGroupModal(true);
   }
@@ -145,7 +249,7 @@ export default function GroupManagementPage() {
       leader_user_id: group.leader_user_id || "",
       leader_name: group.leader_name || "",
       total_members: String(group.total_members || 0),
-      status: group.status || "Aktif",
+      status: normalizeStatus(group.status),
     });
 
     setShowManageModal(false);
@@ -158,33 +262,96 @@ export default function GroupManagementPage() {
     setShowDeleteModal(true);
   }
 
-  async function saveGroup() {
+  async function checkDuplicateGroupName(ignoreGroupId?: string) {
+    let query = supabase
+      .from("groups")
+      .select("id")
+      .ilike("group_name", form.group_name.trim())
+      .is("deleted_at", null)
+      .limit(1);
+
+    query = applyDistrictScope(query);
+
+    if (ignoreGroupId) {
+      query = query.neq("id", ignoreGroupId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      alert(error.message);
+      return true;
+    }
+
+    return (data || []).length > 0;
+  }
+
+  function validateForm() {
     if (!form.group_name.trim()) {
       alert("Sila isi nama kumpulan.");
-      return;
+      return false;
     }
 
     if (!form.school_name.trim()) {
       alert("Sila isi nama sekolah.");
+      return false;
+    }
+
+    const totalMembers = Number(form.total_members || 0);
+
+    if (Number.isNaN(totalMembers) || totalMembers < 0) {
+      alert("Jumlah ahli tidak sah.");
+      return false;
+    }
+
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  async function saveGroup() {
+    if (!validateForm()) return;
+
+    setSaving(true);
+
+    const isDuplicate = await checkDuplicateGroupName(editingGroup?.id);
+
+    if (isDuplicate) {
+      alert("Nama kumpulan ini sudah wujud dalam daerah ini.");
+      setSaving(false);
       return;
     }
 
-    setSaving(true);
+    const selectedLeader = leaders.find(
+      (leader) => leader.id === form.leader_user_id
+    );
 
     const payload = {
       group_name: form.group_name.trim(),
       school_name: form.school_name.trim(),
       leader_user_id: form.leader_user_id || null,
-      leader_name: form.leader_name || null,
+      leader_name: selectedLeader?.full_name || form.leader_name || null,
       total_members: Number(form.total_members || 0),
       status: form.status,
+      district: district || null,
+      district_environment_id: districtEnvironmentId || null,
+      updated_at: new Date().toISOString(),
     };
 
     if (editingGroup) {
-      const { error } = await supabase
+      let query = supabase
         .from("groups")
         .update(payload)
         .eq("id", editingGroup.id);
+
+      query = applyDistrictScope(query);
+
+      const { error } = await query;
 
       if (error) {
         alert(error.message);
@@ -198,7 +365,10 @@ export default function GroupManagementPage() {
         `Kemaskini kumpulan ${form.group_name}`
       );
     } else {
-      const { error } = await supabase.from("groups").insert(payload);
+      const { error } = await supabase.from("groups").insert({
+        ...payload,
+        created_at: new Date().toISOString(),
+      });
 
       if (error) {
         alert(error.message);
@@ -224,10 +394,17 @@ export default function GroupManagementPage() {
 
     setSaving(true);
 
-    const { error } = await supabase
+    let query = supabase
       .from("groups")
-      .update({ status: "Tidak Aktif" })
+      .update({
+        status: "Tidak Aktif",
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", deleteTarget.id);
+
+    query = applyDistrictScope(query);
+
+    const { error } = await query;
 
     if (error) {
       alert(error.message);
@@ -248,14 +425,35 @@ export default function GroupManagementPage() {
   }
 
   async function viewMembers(group: ScoutGroup) {
-    const possibleGroupNames = [group.group_name, group.school_name].filter(
-      Boolean
-    );
-
-    const { data, error } = await supabase
+    let query = supabase
       .from("members")
       .select("*")
-      .in("group_name", possibleGroupNames);
+      .is("deleted_at", null)
+      .eq("group_id", group.id)
+      .order("full_name", { ascending: true });
+
+    query = applyDistrictScope(query);
+
+    let { data, error } = await query;
+
+    if (error) {
+      const possibleGroupNames = [group.group_name, group.school_name].filter(
+        Boolean
+      );
+
+      let fallbackQuery = supabase
+        .from("members")
+        .select("*")
+        .is("deleted_at", null)
+        .in("group_name", possibleGroupNames)
+        .order("full_name", { ascending: true });
+
+      fallbackQuery = applyDistrictScope(fallbackQuery);
+
+      const fallbackResult = await fallbackQuery;
+      data = fallbackResult.data;
+      error = fallbackResult.error;
+    }
 
     if (error) {
       alert(error.message);
@@ -271,11 +469,15 @@ export default function GroupManagementPage() {
       Boolean
     );
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("activities")
       .select("*")
       .in("group_name", possibleGroupNames)
       .order("activity_date", { ascending: true });
+
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
 
     if (error) {
       alert(error.message);
@@ -284,16 +486,6 @@ export default function GroupManagementPage() {
 
     setGroupActivities(data || []);
     setShowActivitiesModal(true);
-  }
-
-  function formatDate(date: string) {
-    if (!date) return "-";
-
-    return new Date(date).toLocaleDateString("ms-MY", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
   }
 
   return (
@@ -316,7 +508,7 @@ export default function GroupManagementPage() {
 
                 <input
                   className="form-control"
-                  placeholder="Cari kumpulan atau sekolah..."
+                  placeholder="Cari kumpulan, sekolah atau pemimpin..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -365,14 +557,12 @@ export default function GroupManagementPage() {
 
                         <span
                           className={`badge ${
-                            group.status === "Aktif"
+                            isActive(group.status)
                               ? "bg-success-subtle text-success"
                               : "bg-warning-subtle text-warning"
                           }`}
                         >
-                          {group.status === "Aktif"
-                            ? "Aktif"
-                            : "Tidak Aktif"}
+                          {normalizeStatus(group.status)}
                         </span>
                       </div>
 
@@ -402,6 +592,11 @@ export default function GroupManagementPage() {
                           <i className="bi bi-pencil-square me-1"></i>
                           Urus
                         </button>
+                      </div>
+
+                      <div className="small text-muted mt-3">
+                        <i className="bi bi-clock me-1"></i>
+                        Dicipta: {formatDate(group.created_at)}
                       </div>
                     </div>
                   </div>
@@ -449,12 +644,12 @@ export default function GroupManagementPage() {
                     <span className="text-muted">Status</span>
                     <span
                       className={`badge ${
-                        selectedGroup.status === "Aktif"
+                        isActive(selectedGroup.status)
                           ? "bg-success"
                           : "bg-warning text-dark"
                       }`}
                     >
-                      {selectedGroup.status}
+                      {normalizeStatus(selectedGroup.status)}
                     </span>
                   </div>
                 </div>
@@ -522,6 +717,7 @@ export default function GroupManagementPage() {
                     setShowGroupModal(false);
                     resetForm();
                   }}
+                  disabled={saving}
                 ></button>
               </div>
 
@@ -535,7 +731,8 @@ export default function GroupManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, group_name: e.target.value })
                       }
-                      placeholder="KP 01 Petaling"
+                      placeholder="KP 01 Kulim"
+                      disabled={saving}
                     />
                   </div>
 
@@ -547,7 +744,8 @@ export default function GroupManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, school_name: e.target.value })
                       }
-                      placeholder="SMK Taman SEA"
+                      placeholder="SMK Kulim"
+                      disabled={saving}
                     />
                   </div>
 
@@ -568,6 +766,7 @@ export default function GroupManagementPage() {
                           leader_name: selectedLeader?.full_name || "",
                         });
                       }}
+                      disabled={saving}
                     >
                       <option value="">Pilih Pemimpin Kumpulan</option>
 
@@ -581,7 +780,7 @@ export default function GroupManagementPage() {
 
                     {leaders.length === 0 && (
                       <small className="text-muted">
-                        Tiada Pemimpin Kumpulan aktif dijumpai.
+                        Tiada Pemimpin Kumpulan aktif dalam daerah ini.
                       </small>
                     )}
                   </div>
@@ -595,8 +794,13 @@ export default function GroupManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, total_members: e.target.value })
                       }
-                      placeholder="86"
+                      placeholder="0"
+                      min={0}
+                      disabled={saving}
                     />
+                    <small className="text-muted">
+                      Boleh diisi manual atau dikemaskini kemudian.
+                    </small>
                   </div>
 
                   <div className="col-md-6">
@@ -607,6 +811,7 @@ export default function GroupManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, status: e.target.value })
                       }
+                      disabled={saving}
                     >
                       <option>Aktif</option>
                       <option>Tidak Aktif</option>
@@ -666,6 +871,7 @@ export default function GroupManagementPage() {
                     setShowDeleteModal(false);
                     setDeleteTarget(null);
                   }}
+                  disabled={saving}
                 ></button>
               </div>
 
@@ -708,10 +914,7 @@ export default function GroupManagementPage() {
       )}
 
       {showMembersModal && (
-        <div
-          className="modal d-block"
-          style={{ background: "rgba(0,0,0,.55)" }}
-        >
+        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
           <div className="modal-dialog modal-lg modal-dialog-centered">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
@@ -743,9 +946,19 @@ export default function GroupManagementPage() {
                       {groupMembers.map((member) => (
                         <tr key={member.id}>
                           <td>{member.full_name}</td>
-                          <td>{member.age}</td>
-                          <td>{member.gender}</td>
-                          <td>{member.status}</td>
+                          <td>{member.age || "-"}</td>
+                          <td>{member.gender || "-"}</td>
+                          <td>
+                            <span
+                              className={`badge ${
+                                isActive(member.status)
+                                  ? "bg-success"
+                                  : "bg-secondary"
+                              }`}
+                            >
+                              {normalizeStatus(member.status)}
+                            </span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -794,12 +1007,22 @@ export default function GroupManagementPage() {
                     <tbody>
                       {groupActivities.map((activity) => (
                         <tr key={activity.id}>
-                          <td>{activity.activity_name}</td>
-                          <td>{formatDate(activity.activity_date)}</td>
+                          <td>
+                            {activity.activity_name ||
+                              activity.title ||
+                              "Aktiviti Tanpa Nama"}
+                          </td>
+                          <td>
+                            {formatDate(
+                              activity.activity_date ||
+                                activity.date ||
+                                activity.created_at
+                            )}
+                          </td>
                           <td>{activity.location || "-"}</td>
                           <td>
                             <span className="badge bg-primary">
-                              {activity.status}
+                              {activity.status || "-"}
                             </span>
                           </td>
                         </tr>

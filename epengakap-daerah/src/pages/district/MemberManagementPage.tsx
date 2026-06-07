@@ -89,7 +89,14 @@ function normalizeStatus(status?: string | null) {
   const value = String(status || "").trim().toLowerCase();
 
   if (value === "active" || value === "aktif") return "Aktif";
-  if (value === "inactive" || value === "tidak aktif") return "Tidak Aktif";
+  if (
+    value === "inactive" ||
+    value === "tidak aktif" ||
+    value === "suspended" ||
+    value === "digantung"
+  ) {
+    return "Tidak Aktif";
+  }
 
   return status || "Aktif";
 }
@@ -136,21 +143,18 @@ function formatMalaysianPhone(value: string) {
 
   if (!digits) return "";
 
-  // Landline: 03-1234 5678
   if (digits.startsWith("03")) {
     if (digits.length <= 2) return digits;
     if (digits.length <= 6) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
     return `${digits.slice(0, 2)}-${digits.slice(2, 6)} ${digits.slice(6)}`;
   }
 
-  // Mobile 011: 011-2345 6789
   if (digits.startsWith("011")) {
     if (digits.length <= 3) return digits;
     if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
     return `${digits.slice(0, 3)}-${digits.slice(3, 7)} ${digits.slice(7)}`;
   }
 
-  // Normal mobile: 012-345 6789
   if (digits.length <= 3) return digits;
   if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
 
@@ -242,7 +246,9 @@ export default function MemberManagementPage() {
   });
 
   const currentUser = useMemo(() => getCurrentUser(), []);
+
   const districtEnvironmentId = currentUser.district_environment_id || null;
+
   const district =
     currentUser.district ||
     currentUser.district_name ||
@@ -250,9 +256,30 @@ export default function MemberManagementPage() {
     null;
 
   useEffect(() => {
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      setLoading(false);
+      return;
+    }
+
     fetchMembers();
     fetchGroups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function applyDistrictScope(query: any) {
+    if (districtEnvironmentId) {
+      return query.eq("district_environment_id", districtEnvironmentId);
+    }
+
+    if (district) {
+      return query.eq("district", district);
+    }
+
+    return query;
+  }
 
   async function fetchMembers() {
     setLoading(true);
@@ -263,11 +290,7 @@ export default function MemberManagementPage() {
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    } else if (district) {
-      query = query.eq("district", district);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
@@ -288,11 +311,7 @@ export default function MemberManagementPage() {
       .select("id, group_name, school_name, status, district, district_environment_id")
       .order("group_name", { ascending: true });
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    } else if (district) {
-      query = query.eq("district", district);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
@@ -389,6 +408,13 @@ export default function MemberManagementPage() {
   }
 
   function openAddModal() {
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      return;
+    }
+
     resetForm();
     setShowMemberModal(true);
   }
@@ -437,6 +463,8 @@ export default function MemberManagementPage() {
       .eq("ic_number", cleanIC)
       .is("deleted_at", null)
       .limit(1);
+
+    query = applyDistrictScope(query);
 
     if (ignoreMemberId) {
       query = query.neq("id", ignoreMemberId);
@@ -515,12 +543,19 @@ export default function MemberManagementPage() {
   async function saveMember() {
     if (!validateForm()) return;
 
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      return;
+    }
+
     setSaving(true);
 
     const isDuplicateIC = await checkDuplicateIC(form.ic_number, editingMember?.id);
 
     if (isDuplicateIC) {
-      alert("No IC / MyKid ini sudah wujud dalam sistem.");
+      alert("No IC / MyKid ini sudah wujud dalam daerah ini.");
       setSaving(false);
       return;
     }
@@ -549,10 +584,14 @@ export default function MemberManagementPage() {
     };
 
     if (editingMember) {
-      const { error } = await supabase
+      let query = supabase
         .from("members")
         .update(payload)
         .eq("id", editingMember.id);
+
+      query = applyDistrictScope(query);
+
+      const { error } = await query;
 
       if (error) {
         alert(error.message);
@@ -599,13 +638,17 @@ export default function MemberManagementPage() {
 
     setSaving(true);
 
-    const { error } = await supabase
+    let query = supabase
       .from("members")
       .update({
         status: "Tidak Aktif",
         updated_at: new Date().toISOString(),
       })
       .eq("id", deleteTarget.id);
+
+    query = applyDistrictScope(query);
+
+    const { error } = await query;
 
     if (error) {
       alert(error.message);
@@ -627,7 +670,7 @@ export default function MemberManagementPage() {
 
   return (
     <DashboardLayout role="district">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
         <div>
           <h2 className="fw-bold mb-1">Ahli Pengakap</h2>
           <p className="text-muted mb-0">
@@ -635,7 +678,7 @@ export default function MemberManagementPage() {
           </p>
         </div>
 
-        <div className="d-flex gap-2">
+        <div className="d-flex gap-2 flex-wrap">
           <button
             type="button"
             className="btn btn-outline-success"
@@ -1025,6 +1068,7 @@ export default function MemberManagementPage() {
                     setShowMemberModal(false);
                     resetForm();
                   }}
+                  disabled={saving}
                 ></button>
               </div>
 
@@ -1043,6 +1087,7 @@ export default function MemberManagementPage() {
                       }
                       placeholder="030101-03-1234"
                       maxLength={14}
+                      disabled={saving}
                     />
 
                     <small className="text-muted">
@@ -1059,6 +1104,7 @@ export default function MemberManagementPage() {
                         setForm({ ...form, full_name: e.target.value })
                       }
                       placeholder="Ahmad bin Ali"
+                      disabled={saving}
                     />
                   </div>
 
@@ -1072,6 +1118,7 @@ export default function MemberManagementPage() {
                         setForm({ ...form, email: e.target.value })
                       }
                       placeholder="contoh@email.com"
+                      disabled={saving}
                     />
                   </div>
 
@@ -1091,6 +1138,7 @@ export default function MemberManagementPage() {
                           group_name: selectedGroup?.group_name || "",
                         });
                       }}
+                      disabled={saving}
                     >
                       <option value="">Pilih Kumpulan / Sekolah</option>
 
@@ -1111,6 +1159,7 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, category: e.target.value })
                       }
+                      disabled={saving}
                     >
                       {CATEGORY_OPTIONS.map((category) => (
                         <option key={category}>{category}</option>
@@ -1128,6 +1177,7 @@ export default function MemberManagementPage() {
                         setForm({ ...form, age: e.target.value })
                       }
                       placeholder="11"
+                      disabled={saving}
                     />
                   </div>
 
@@ -1139,6 +1189,7 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, gender: e.target.value })
                       }
+                      disabled={saving}
                     >
                       {GENDER_OPTIONS.map((gender) => (
                         <option key={gender}>{gender}</option>
@@ -1155,6 +1206,7 @@ export default function MemberManagementPage() {
                         setForm({ ...form, guardian_name: e.target.value })
                       }
                       placeholder="Nama ibu/bapa/penjaga"
+                      disabled={saving}
                     />
                   </div>
 
@@ -1171,6 +1223,7 @@ export default function MemberManagementPage() {
                       }
                       placeholder="012-345 6789"
                       maxLength={13}
+                      disabled={saving}
                     />
                     <small className="text-muted">
                       Contoh: 012-345 6789 / 011-2345 6789 / 03-1234 5678
@@ -1187,6 +1240,7 @@ export default function MemberManagementPage() {
                         setForm({ ...form, guardian_email: e.target.value })
                       }
                       placeholder="penjaga@email.com"
+                      disabled={saving}
                     />
                   </div>
 
@@ -1198,6 +1252,7 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, status: e.target.value })
                       }
+                      disabled={saving}
                     >
                       {STATUS_OPTIONS.map((status) => (
                         <option key={status}>{status}</option>
@@ -1214,6 +1269,7 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, address: e.target.value })
                       }
+                      disabled={saving}
                     ></textarea>
                   </div>
 
@@ -1226,6 +1282,7 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, notes: e.target.value })
                       }
+                      disabled={saving}
                     ></textarea>
                   </div>
                 </div>
@@ -1276,6 +1333,7 @@ export default function MemberManagementPage() {
                     setShowDeleteModal(false);
                     setDeleteTarget(null);
                   }}
+                  disabled={saving}
                 ></button>
               </div>
 

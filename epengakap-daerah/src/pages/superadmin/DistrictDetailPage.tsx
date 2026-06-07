@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabaseClient";
 
+type EnvironmentStatus = "active" | "Suspended" | "inactive";
+
 type DistrictEnvironmentRaw = {
   id: string;
   state_id: string;
@@ -110,15 +112,32 @@ function isActiveStatus(value?: string | null) {
   return status === "active" || status === "aktif";
 }
 
-function isInactiveStatus(value?: string | null) {
+function isSuspendedStatus(value?: string | null) {
   const status = normalizeStatus(value);
+  return status === "suspended" || status === "digantung";
+}
 
-  return (
-    status === "suspended" ||
-    status === "inactive" ||
-    status === "digantung" ||
-    status === "tidak aktif"
-  );
+function isInactiveOnlyStatus(value?: string | null) {
+  const status = normalizeStatus(value);
+  return status === "inactive" || status === "tidak aktif" || status === "disabled";
+}
+
+function isInactiveStatus(value?: string | null) {
+  return isSuspendedStatus(value) || isInactiveOnlyStatus(value);
+}
+
+function getCanonicalEnvironmentStatus(
+  value?: string | null
+): EnvironmentStatus {
+  if (isSuspendedStatus(value)) return "Suspended";
+  if (isInactiveOnlyStatus(value)) return "inactive";
+  return "active";
+}
+
+function getStatusLabel(status: EnvironmentStatus) {
+  if (status === "active") return "Aktif";
+  if (status === "Suspended") return "Digantung";
+  return "Tidak Aktif";
 }
 
 function formatDateTime(value?: string | null) {
@@ -146,10 +165,18 @@ function getStatusBadge(statusValue?: string | null) {
     );
   }
 
-  if (isInactiveStatus(statusValue)) {
+  if (isSuspendedStatus(statusValue)) {
+    return (
+      <span className="badge rounded-pill bg-warning-subtle text-warning border border-warning-subtle px-3 py-2">
+        Digantung
+      </span>
+    );
+  }
+
+  if (isInactiveOnlyStatus(statusValue)) {
     return (
       <span className="badge rounded-pill bg-danger-subtle text-danger border border-danger-subtle px-3 py-2">
-        Digantung / Tidak Aktif
+        Tidak Aktif
       </span>
     );
   }
@@ -173,6 +200,9 @@ export default function DistrictDetailPage() {
 
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+
+  const [pendingStatus, setPendingStatus] =
+    useState<EnvironmentStatus>("active");
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [showCommissionerModal, setShowCommissionerModal] = useState(false);
@@ -203,7 +233,7 @@ export default function DistrictDetailPage() {
       const user = getCurrentUser();
 
       await supabase.from("audit_logs").insert({
-        actor_name: user.full_name || user.name || "Super Admin",
+        actor_name: user.full_name || "Super Admin",
         actor_role: user.role || "Super Admin",
         action,
         module: "Pengurusan Daerah",
@@ -364,6 +394,7 @@ export default function DistrictDetailPage() {
         total_users: usersResult.data?.length || 0,
       });
 
+      setPendingStatus(getCanonicalEnvironmentStatus(envData.status));
       setUsers(usersResult.data || []);
       setCommissioners(commissionerOptions);
       setSelectedCommissionerId(envData.district_commissioner_user_id);
@@ -483,20 +514,25 @@ export default function DistrictDetailPage() {
     }
   }
 
-  async function updateEnvironmentStatus(
-    nextStatus: "active" | "Suspended" | "inactive"
-  ) {
+  async function saveEnvironmentStatus() {
     if (!environment) return;
 
+    const currentStatus = getCanonicalEnvironmentStatus(environment.status);
+
+    if (pendingStatus === currentStatus) {
+      alert("Tiada perubahan status untuk disimpan.");
+      return;
+    }
+
     const label =
-      nextStatus === "active"
+      pendingStatus === "active"
         ? "aktifkan"
-        : nextStatus === "Suspended"
+        : pendingStatus === "Suspended"
         ? "gantung"
         : "nyahaktifkan";
 
     const confirmed = confirm(
-      `Adakah anda pasti mahu ${label} daerah ${environment.district_name}?`
+      `Simpan perubahan status dan ${label} daerah ${environment.district_name}?`
     );
 
     if (!confirmed) return;
@@ -507,7 +543,7 @@ export default function DistrictDetailPage() {
       const { error } = await supabase
         .from("district_environments")
         .update({
-          status: nextStatus,
+          status: pendingStatus,
           updated_at: new Date().toISOString(),
         })
         .eq("id", environment.id);
@@ -515,19 +551,23 @@ export default function DistrictDetailPage() {
       if (error) throw error;
 
       await addAuditLog(
-        nextStatus === "active"
+        pendingStatus === "active"
           ? "ACTIVATE"
-          : nextStatus === "Suspended"
+          : pendingStatus === "Suspended"
           ? "SUSPEND"
           : "DEACTIVATE",
-        `${label} environment daerah ${environment.district_name}.`,
+        `Kemaskini status environment daerah ${
+          environment.district_name
+        } kepada ${getStatusLabel(pendingStatus)}.`,
         environment.id,
         environment,
-        { status: nextStatus },
+        { status: pendingStatus },
         environment.id
       );
 
       await fetchDetail();
+
+      alert("Status environment berjaya disimpan.");
     } catch (error: any) {
       alert(error?.message || "Gagal mengemaskini status daerah.");
     } finally {
@@ -651,6 +691,10 @@ export default function DistrictDetailPage() {
     return commissioners.filter((user) => !user.is_available);
   }, [commissioners]);
 
+  const hasStatusChange = environment
+    ? pendingStatus !== getCanonicalEnvironmentStatus(environment.status)
+    : false;
+
   if (loading) {
     return (
       <DashboardLayout role="superadmin">
@@ -741,7 +785,7 @@ export default function DistrictDetailPage() {
       <div className="row g-4">
         <div className="col-lg-8">
           <div className="card border-0 shadow-sm rounded-4 mb-4">
-            <div className="card-header bg-white border-0 p-4 d-flex flex-column flex-md-row justify-content-between align-items-md-start gap-3">
+            <div className="card-header bg-white border-0 p-4 d-flex justify-content-between align-items-start gap-3">
               <div>
                 <h5 className="fw-bold mb-1">Maklumat Daerah</h5>
                 <p className="text-muted small mb-0">
@@ -763,22 +807,18 @@ export default function DistrictDetailPage() {
               <div className="row g-3">
                 <DetailItem label="Negeri" value={environment.state_name} />
                 <DetailItem label="Daerah" value={environment.district_name} />
-
                 <DetailItem
                   label="Nama Rasmi"
                   value={environment.official_name}
                 />
-
                 <DetailItem
                   label="Email Rasmi"
                   value={environment.official_email}
                 />
-
                 <DetailItem
                   label="Telefon Rasmi"
                   value={formatPhone(environment.official_phone || "") || "-"}
                 />
-
                 <DetailItem
                   label="Tarikh Diluluskan"
                   value={formatDateTime(environment.approved_at)}
@@ -797,7 +837,7 @@ export default function DistrictDetailPage() {
           </div>
 
           <div className="card border-0 shadow-sm rounded-4 mb-4">
-            <div className="card-header bg-white border-0 p-4 d-flex flex-column flex-md-row justify-content-between align-items-md-start gap-3">
+            <div className="card-header bg-white border-0 p-4 d-flex justify-content-between align-items-start gap-3">
               <div>
                 <h5 className="fw-bold mb-1">Pesuruhjaya Daerah</h5>
                 <p className="text-muted small mb-0">
@@ -907,50 +947,102 @@ export default function DistrictDetailPage() {
             <div className="card-header bg-white border-0 p-4">
               <h5 className="fw-bold mb-1">Pengurusan Status</h5>
               <p className="text-muted small mb-0">
-                Tukar status environment daerah.
+                Pilih status kemudian tekan simpan.
               </p>
             </div>
 
             <div className="card-body p-4 pt-0">
+              <div className="mb-3">
+                <small className="text-muted d-block mb-2">Status dipilih</small>
+                <span
+                  className={`badge rounded-pill px-3 py-2 ${
+                    pendingStatus === "active"
+                      ? "bg-success-subtle text-success border border-success-subtle"
+                      : pendingStatus === "Suspended"
+                      ? "bg-warning-subtle text-warning border border-warning-subtle"
+                      : "bg-danger-subtle text-danger border border-danger-subtle"
+                  }`}
+                >
+                  {getStatusLabel(pendingStatus)}
+                </span>
+
+                {hasStatusChange && (
+                  <div className="small text-warning mt-2">
+                    <i className="bi bi-exclamation-circle me-1"></i>
+                    Ada perubahan belum disimpan.
+                  </div>
+                )}
+              </div>
+
               <div className="d-grid gap-2">
                 <button
-                  className="btn btn-outline-success"
-                  onClick={() => updateEnvironmentStatus("active")}
-                  disabled={processing || isActiveStatus(environment.status)}
+                  type="button"
+                  className={`btn ${
+                    pendingStatus === "active"
+                      ? "btn-success"
+                      : "btn-outline-success"
+                  }`}
+                  onClick={() => setPendingStatus("active")}
+                  disabled={processing}
                 >
                   <i className="bi bi-check-circle me-1"></i>
                   Aktifkan Environment
                 </button>
 
                 <button
-                  className="btn btn-outline-warning"
-                  onClick={() => updateEnvironmentStatus("Suspended")}
-                  disabled={
-                    processing ||
-                    normalizeStatus(environment.status) === "suspended"
-                  }
+                  type="button"
+                  className={`btn ${
+                    pendingStatus === "Suspended"
+                      ? "btn-warning text-dark"
+                      : "btn-outline-warning"
+                  }`}
+                  onClick={() => setPendingStatus("Suspended")}
+                  disabled={processing}
                 >
                   <i className="bi bi-pause-circle me-1"></i>
                   Gantung Environment
                 </button>
 
                 <button
-                  className="btn btn-outline-danger"
-                  onClick={() => updateEnvironmentStatus("inactive")}
-                  disabled={
-                    processing ||
-                    normalizeStatus(environment.status) === "inactive"
-                  }
+                  type="button"
+                  className={`btn ${
+                    pendingStatus === "inactive"
+                      ? "btn-danger"
+                      : "btn-outline-danger"
+                  }`}
+                  onClick={() => setPendingStatus("inactive")}
+                  disabled={processing}
                 >
                   <i className="bi bi-slash-circle me-1"></i>
                   Nyahaktifkan Environment
+                </button>
+
+                <hr />
+
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  onClick={saveEnvironmentStatus}
+                  disabled={processing || !hasStatusChange}
+                >
+                  {processing ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-1"></span>
+                      Menyimpan...
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-save me-1"></i>
+                      Simpan Status
+                    </>
+                  )}
                 </button>
               </div>
 
               <div className="alert alert-light border rounded-4 small mt-3 mb-0">
                 <i className="bi bi-info-circle me-1"></i>
-                Status permohonan kekal Approved. Status sebenar daerah dikawal
-                di sini.
+                Pilih status dahulu, kemudian tekan{" "}
+                <strong>Simpan Status</strong> untuk sahkan perubahan.
               </div>
             </div>
           </div>
@@ -1033,9 +1125,9 @@ export default function DistrictDetailPage() {
                   <div className="col-md-6">
                     <label className="form-label">Status Semasa</label>
                     <div className="form-control bg-light">
-                      {isActiveStatus(environment.status)
-                        ? "Aktif"
-                        : "Digantung / Tidak Aktif"}
+                      {getStatusLabel(
+                        getCanonicalEnvironmentStatus(environment.status)
+                      )}
                     </div>
                     <small className="text-muted">
                       Status environment dikawal di bahagian Pengurusan Status.

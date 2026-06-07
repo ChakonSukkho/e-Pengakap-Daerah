@@ -69,6 +69,7 @@ function isActiveStatus(value?: string | null) {
 
 function isInactiveStatus(value?: string | null) {
   const status = normalizeStatus(value);
+
   return (
     status === "suspended" ||
     status === "inactive" ||
@@ -126,6 +127,7 @@ export default function DistrictManagementPage() {
         .is("deleted_at", null);
 
       if (error) return 0;
+
       return count || 0;
     } catch {
       return 0;
@@ -141,6 +143,7 @@ export default function DistrictManagementPage() {
         .is("deleted_at", null);
 
       if (error) return 0;
+
       return count || 0;
     } catch {
       return 0;
@@ -171,7 +174,9 @@ export default function DistrictManagementPage() {
 
         supabase
           .from("system_users")
-          .select("id, full_name, email, role, district, district_environment_id, status")
+          .select(
+            "id, full_name, email, role, district, district_environment_id, status"
+          )
           .eq("role", "Pesuruhjaya Daerah"),
       ]);
 
@@ -200,6 +205,7 @@ export default function DistrictManagementPage() {
         (environmentsResult.data || []).map(
           async (environment: DistrictEnvironmentRaw) => {
             const districtMaster = districtMap.get(environment.district_id);
+
             const commissioner = commissionerMap.get(
               environment.district_commissioner_user_id
             );
@@ -249,8 +255,12 @@ export default function DistrictManagementPage() {
         normalizeText(district.district_name).toLowerCase().includes(keyword) ||
         normalizeText(district.official_name).toLowerCase().includes(keyword) ||
         normalizeText(district.official_email).toLowerCase().includes(keyword) ||
-        normalizeText(district.commissioner_name).toLowerCase().includes(keyword) ||
-        normalizeText(district.commissioner_email).toLowerCase().includes(keyword);
+        normalizeText(district.commissioner_name)
+          .toLowerCase()
+          .includes(keyword) ||
+        normalizeText(district.commissioner_email)
+          .toLowerCase()
+          .includes(keyword);
 
       const matchState =
         stateFilter === "Semua Negeri" || district.state_name === stateFilter;
@@ -288,7 +298,8 @@ export default function DistrictManagementPage() {
         <div>
           <h2 className="fw-bold mb-1">Pengurusan Daerah</h2>
           <p className="text-muted mb-0">
-            Pantau district environment yang telah diluluskan dan aktif dalam sistem.
+            Pantau dan urus tetapan district environment yang telah diluluskan
+            dalam sistem.
           </p>
         </div>
 
@@ -345,6 +356,7 @@ export default function DistrictManagementPage() {
             <div className="col-lg-6">
               <div className="position-relative">
                 <i className="bi bi-search position-absolute top-50 start-0 translate-middle-y ms-3 text-muted"></i>
+
                 <input
                   className="form-control ps-5 rounded-3"
                   placeholder="Cari negeri, daerah, email atau pesuruhjaya..."
@@ -390,7 +402,7 @@ export default function DistrictManagementPage() {
                 <th className="px-4 py-3">Ahli</th>
                 <th className="px-4 py-3">Kumpulan</th>
                 <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-end">Tindakan</th>
+                <th className="px-4 py-3 text-end">Tetapan</th>
               </tr>
             </thead>
 
@@ -442,15 +454,17 @@ export default function DistrictManagementPage() {
                       {district.total_groups || 0}
                     </td>
 
-                    <td className="px-4 py-3">{getStatusBadge(district.status)}</td>
+                    <td className="px-4 py-3">
+                      {getStatusBadge(district.status)}
+                    </td>
 
                     <td className="px-4 py-3 text-end">
                       <Link
                         to={`/superadmin/districts/${district.id}`}
                         className="btn btn-sm btn-success rounded-pill px-3"
                       >
-                        <i className="bi bi-gear me-1"></i>
-                        Urus Daerah
+                        <i className="bi bi-sliders me-1"></i>
+                        Urus Tetapan
                       </Link>
                     </td>
                   </tr>
@@ -464,7 +478,9 @@ export default function DistrictManagementPage() {
           {loading ? (
             <div className="text-center py-5">
               <div className="spinner-border text-success"></div>
-              <p className="text-muted mt-3 mb-0">Memuatkan senarai daerah...</p>
+              <p className="text-muted mt-3 mb-0">
+                Memuatkan senarai daerah...
+              </p>
             </div>
           ) : filteredDistricts.length === 0 ? (
             <div className="text-center py-5 text-muted">
@@ -493,7 +509,10 @@ export default function DistrictManagementPage() {
                       <span className="text-muted">Pesuruhjaya:</span>{" "}
                       <strong>{district.commissioner_name || "-"}</strong>
                     </div>
-                    <div className="text-muted">{district.commissioner_email || "-"}</div>
+
+                    <div className="text-muted">
+                      {district.commissioner_email || "-"}
+                    </div>
                   </div>
 
                   <div className="d-flex gap-3 small text-muted mb-3">
@@ -505,8 +524,8 @@ export default function DistrictManagementPage() {
                     to={`/superadmin/districts/${district.id}`}
                     className="btn btn-success w-100 rounded-pill"
                   >
-                    <i className="bi bi-gear me-1"></i>
-                    Urus Daerah
+                    <i className="bi bi-sliders me-1"></i>
+                    Urus Tetapan
                   </Link>
                 </div>
               ))}
@@ -515,7 +534,8 @@ export default function DistrictManagementPage() {
         </div>
 
         <div className="card-footer bg-white border-top p-4 small text-muted">
-          Memaparkan {filteredDistricts.length} daripada {districts.length} rekod
+          Memaparkan {filteredDistricts.length} daripada {districts.length}{" "}
+          rekod
         </div>
       </div>
     </DashboardLayout>

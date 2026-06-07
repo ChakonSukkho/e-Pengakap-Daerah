@@ -11,14 +11,20 @@ type Activity = {
   location: string | null;
   description: string | null;
   status: string;
+  district?: string | null;
+  district_environment_id?: string | null;
   created_at?: string;
+  updated_at?: string | null;
+  deleted_at?: string | null;
 };
 
 type ScoutGroup = {
   id: string;
   group_name: string;
-  school_name: string;
+  school_name: string | null;
   status: string;
+  district?: string | null;
+  district_environment_id?: string | null;
 };
 
 type ActivityForm = {
@@ -31,20 +37,62 @@ type ActivityForm = {
   status: string;
 };
 
-async function addAuditLog(action: string, description: string) {
-  const currentUser = JSON.parse(
-    localStorage.getItem("user") ||
-      localStorage.getItem("auth_user") ||
-      "{}"
-  );
+function getCurrentUser() {
+  try {
+    return JSON.parse(
+      localStorage.getItem("user") ||
+        localStorage.getItem("auth_user") ||
+        "{}"
+    );
+  } catch {
+    return {};
+  }
+}
 
-  await supabase.from("audit_logs").insert({
-    actor_name: currentUser.full_name || currentUser.name || "Unknown User",
-    actor_role: currentUser.role || "Unknown Role",
-    action,
-    module: "Aktiviti",
-    description,
-  });
+function getUserDistrict() {
+  const currentUser = getCurrentUser();
+
+  return (
+    currentUser.district ||
+    currentUser.district_name ||
+    currentUser.daerah ||
+    ""
+  );
+}
+
+function normalizeStatus(status?: string | null) {
+  const value = String(status || "").trim().toLowerCase();
+
+  if (value === "aktif" || value === "active") return "Aktif";
+  if (value === "tidak aktif" || value === "inactive") return "Tidak Aktif";
+  if (value === "digantung" || value === "suspended") return "Digantung";
+
+  return status || "Aktif";
+}
+
+async function addAuditLog(
+  action: string,
+  description: string,
+  recordId?: string | null
+) {
+  try {
+    const currentUser = getCurrentUser();
+
+    await supabase.from("audit_logs").insert({
+      actor_name: currentUser.full_name || "Unknown User",
+      actor_role: currentUser.role || "Unknown Role",
+      action,
+      module: "Aktiviti",
+      description,
+      user_id: currentUser.id || null,
+      district_environment_id: currentUser.district_environment_id || null,
+      record_id: recordId || null,
+      ip_address: null,
+      user_agent: navigator.userAgent,
+    });
+  } catch {
+    // Jangan block proses utama kalau audit log gagal.
+  }
 }
 
 export default function DistrictActivitiesPage() {
@@ -58,13 +106,19 @@ export default function DistrictActivitiesPage() {
   const [statusFilter, setStatusFilter] = useState("Semua Status");
   const [groupFilter, setGroupFilter] = useState("Semua Kumpulan");
 
-  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
+  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(
+    null
+  );
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Activity | null>(null);
 
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+
+  const currentUser = useMemo(() => getCurrentUser(), []);
+  const district = getUserDistrict();
+  const districtEnvironmentId = currentUser.district_environment_id || "";
 
   const [form, setForm] = useState<ActivityForm>({
     activity_name: "",
@@ -77,21 +131,47 @@ export default function DistrictActivitiesPage() {
   });
 
   useEffect(() => {
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      setLoading(false);
+      return;
+    }
+
     fetchActivities();
     fetchGroups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function applyDistrictScope(query: any) {
+    if (districtEnvironmentId) {
+      return query.eq("district_environment_id", districtEnvironmentId);
+    }
+
+    if (district) {
+      return query.eq("district", district);
+    }
+
+    return query;
+  }
 
   async function fetchActivities() {
     setLoading(true);
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("activities")
       .select("*")
       .is("deleted_at", null)
       .order("activity_date", { ascending: true });
 
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
+
     if (error) {
       alert(error.message);
+      setActivities([]);
       setLoading(false);
       return;
     }
@@ -101,25 +181,35 @@ export default function DistrictActivitiesPage() {
   }
 
   async function fetchGroups() {
-    const { data, error } = await supabase
+    let query = supabase
       .from("groups")
-      .select("id, group_name, school_name, status")
-      .in("status", ["Aktif", "active"])
+      .select(
+        "id, group_name, school_name, status, district, district_environment_id"
+      )
+      .is("deleted_at", null)
       .order("group_name", { ascending: true });
+
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
 
     if (error) {
       alert(error.message);
+      setGroups([]);
       return;
     }
 
-    setGroups(data || []);
+    setGroups(
+      (data || []).filter((group) => normalizeStatus(group.status) === "Aktif")
+    );
   }
 
   const filteredActivities = useMemo(() => {
-    const keyword = search.toLowerCase();
+    const keyword = search.toLowerCase().trim();
 
     return activities.filter((activity) => {
       const matchSearch =
+        !keyword ||
         (activity.activity_name || "").toLowerCase().includes(keyword) ||
         (activity.location || "").toLowerCase().includes(keyword) ||
         (activity.group_name || "").toLowerCase().includes(keyword) ||
@@ -154,6 +244,7 @@ export default function DistrictActivitiesPage() {
 
   function resetForm() {
     setEditingActivity(null);
+
     setForm({
       activity_name: "",
       activity_date: "",
@@ -166,6 +257,13 @@ export default function DistrictActivitiesPage() {
   }
 
   function openAddModal() {
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      return;
+    }
+
     resetForm();
     setShowActivityModal(true);
   }
@@ -197,6 +295,13 @@ export default function DistrictActivitiesPage() {
   }
 
   async function saveActivity() {
+    if (!districtEnvironmentId && !district) {
+      alert(
+        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
+      );
+      return;
+    }
+
     if (!form.activity_name.trim()) {
       alert("Sila isi nama aktiviti.");
       return;
@@ -219,32 +324,51 @@ export default function DistrictActivitiesPage() {
 
     setSaving(true);
 
-    const payload = {
+    const selectedGroup = groups.find((group) => group.id === form.group_id);
+
+    const payload: Record<string, any> = {
       activity_name: form.activity_name.trim(),
       activity_date: form.activity_date,
       location: form.location.trim(),
       description: form.description.trim() || null,
       group_id: form.group_id,
-      group_name: form.group_name,
+      group_name: selectedGroup?.group_name || form.group_name,
       status: form.status,
+      district,
+      district_environment_id: districtEnvironmentId || null,
       updated_at: new Date().toISOString(),
     };
 
     if (editingActivity) {
-      const { error } = await supabase
+      let query = supabase
         .from("activities")
         .update(payload)
         .eq("id", editingActivity.id);
 
+      query = applyDistrictScope(query);
+
+      const { error } = await query;
+
       if (error) {
         alert(error.message);
         setSaving(false);
         return;
       }
 
-      await addAuditLog("UPDATE", `Kemaskini aktiviti ${form.activity_name}`);
+      await addAuditLog(
+        "UPDATE",
+        `Kemaskini aktiviti ${form.activity_name}`,
+        editingActivity.id
+      );
     } else {
-      const { error } = await supabase.from("activities").insert(payload);
+      const { data, error } = await supabase
+        .from("activities")
+        .insert({
+          ...payload,
+          created_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
 
       if (error) {
         alert(error.message);
@@ -252,7 +376,11 @@ export default function DistrictActivitiesPage() {
         return;
       }
 
-      await addAuditLog("CREATE", `Tambah aktiviti ${form.activity_name}`);
+      await addAuditLog(
+        "CREATE",
+        `Tambah aktiviti ${form.activity_name}`,
+        data?.id || null
+      );
     }
 
     await fetchActivities();
@@ -266,7 +394,7 @@ export default function DistrictActivitiesPage() {
 
     setSaving(true);
 
-    const { error } = await supabase
+    let query = supabase
       .from("activities")
       .update({
         status: "Dibatalkan",
@@ -274,13 +402,21 @@ export default function DistrictActivitiesPage() {
       })
       .eq("id", cancelTarget.id);
 
+    query = applyDistrictScope(query);
+
+    const { error } = await query;
+
     if (error) {
       alert(error.message);
       setSaving(false);
       return;
     }
 
-    await addAuditLog("CANCEL", `Batalkan aktiviti ${cancelTarget.activity_name}`);
+    await addAuditLog(
+      "CANCEL",
+      `Batalkan aktiviti ${cancelTarget.activity_name}`,
+      cancelTarget.id
+    );
 
     await fetchActivities();
     setShowCancelModal(false);
@@ -316,7 +452,7 @@ export default function DistrictActivitiesPage() {
 
   return (
     <DashboardLayout role="district" hideSearch>
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
         <div>
           <h2 className="fw-bold mb-1">Aktiviti Daerah</h2>
           <p className="text-muted mb-0">
@@ -330,7 +466,11 @@ export default function DistrictActivitiesPage() {
             Tambah Aktiviti
           </button>
 
-          <button className="btn btn-outline-success" onClick={fetchActivities}>
+          <button
+            className="btn btn-outline-success"
+            onClick={fetchActivities}
+            disabled={loading}
+          >
             <i className="bi bi-arrow-clockwise me-1"></i>
             Refresh
           </button>
@@ -403,7 +543,8 @@ export default function DistrictActivitiesPage() {
                 <option>Semua Kumpulan</option>
                 {groups.map((group) => (
                   <option key={group.id} value={group.group_name}>
-                    {group.group_name} — {group.school_name}
+                    {group.group_name}
+                    {group.school_name ? ` — ${group.school_name}` : ""}
                   </option>
                 ))}
               </select>
@@ -489,6 +630,7 @@ export default function DistrictActivitiesPage() {
                       <button
                         className="btn btn-sm btn-light border rounded-3 me-1"
                         onClick={() => openViewModal(activity)}
+                        title="Lihat"
                       >
                         <i className="bi bi-eye"></i>
                       </button>
@@ -496,6 +638,7 @@ export default function DistrictActivitiesPage() {
                       <button
                         className="btn btn-sm btn-light border rounded-3 me-1"
                         onClick={() => openEditModal(activity)}
+                        title="Edit"
                       >
                         <i className="bi bi-pencil"></i>
                       </button>
@@ -504,6 +647,7 @@ export default function DistrictActivitiesPage() {
                         <button
                           className="btn btn-sm btn-light border rounded-3 text-danger"
                           onClick={() => openCancelModal(activity)}
+                          title="Batalkan"
                         >
                           <i className="bi bi-x-circle"></i>
                         </button>
@@ -517,12 +661,16 @@ export default function DistrictActivitiesPage() {
         </div>
 
         <div className="card-footer bg-white border-top p-4 small text-muted">
-          Memaparkan {filteredActivities.length} daripada {activities.length} rekod
+          Memaparkan {filteredActivities.length} daripada {activities.length}{" "}
+          rekod
         </div>
       </div>
 
       {showActivityModal && (
-        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
+        <div
+          className="modal d-block"
+          style={{ background: "rgba(0,0,0,.55)" }}
+        >
           <div className="modal-dialog modal-dialog-centered modal-lg">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
@@ -542,6 +690,7 @@ export default function DistrictActivitiesPage() {
                     setShowActivityModal(false);
                     resetForm();
                   }}
+                  disabled={saving}
                 ></button>
               </div>
 
@@ -556,6 +705,7 @@ export default function DistrictActivitiesPage() {
                         setForm({ ...form, activity_name: e.target.value })
                       }
                       placeholder="Contoh: Perkhemahan Unit Pengakap"
+                      disabled={saving}
                     />
                   </div>
 
@@ -568,6 +718,7 @@ export default function DistrictActivitiesPage() {
                       onChange={(e) =>
                         setForm({ ...form, activity_date: e.target.value })
                       }
+                      disabled={saving}
                     />
                   </div>
 
@@ -579,6 +730,7 @@ export default function DistrictActivitiesPage() {
                       onChange={(e) =>
                         setForm({ ...form, status: e.target.value })
                       }
+                      disabled={saving}
                     >
                       <option>Akan Datang</option>
                       <option>Pendaftaran Dibuka</option>
@@ -603,12 +755,14 @@ export default function DistrictActivitiesPage() {
                           group_name: selectedGroup?.group_name || "",
                         });
                       }}
+                      disabled={saving}
                     >
                       <option value="">Pilih Kumpulan / Sekolah</option>
 
                       {groups.map((group) => (
                         <option key={group.id} value={group.id}>
-                          {group.group_name} — {group.school_name}
+                          {group.group_name}
+                          {group.school_name ? ` — ${group.school_name}` : ""}
                         </option>
                       ))}
                     </select>
@@ -623,6 +777,7 @@ export default function DistrictActivitiesPage() {
                         setForm({ ...form, location: e.target.value })
                       }
                       placeholder="Contoh: SK Setiawangsa"
+                      disabled={saving}
                     />
                   </div>
 
@@ -636,6 +791,7 @@ export default function DistrictActivitiesPage() {
                         setForm({ ...form, description: e.target.value })
                       }
                       placeholder="Contoh: Aktiviti latihan asas, kawad kaki, ikatan dan simpulan."
+                      disabled={saving}
                     ></textarea>
                   </div>
                 </div>
@@ -673,7 +829,10 @@ export default function DistrictActivitiesPage() {
       )}
 
       {showViewModal && selectedActivity && (
-        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
+        <div
+          className="modal d-block"
+          style={{ background: "rgba(0,0,0,.55)" }}
+        >
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
@@ -731,7 +890,10 @@ export default function DistrictActivitiesPage() {
       )}
 
       {showCancelModal && cancelTarget && (
-        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
+        <div
+          className="modal d-block"
+          style={{ background: "rgba(0,0,0,.55)" }}
+        >
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
@@ -745,6 +907,7 @@ export default function DistrictActivitiesPage() {
                     setShowCancelModal(false);
                     setCancelTarget(null);
                   }}
+                  disabled={saving}
                 ></button>
               </div>
 
