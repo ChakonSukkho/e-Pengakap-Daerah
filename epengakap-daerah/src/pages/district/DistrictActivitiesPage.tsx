@@ -451,7 +451,7 @@ export default function DistrictActivitiesPage() {
   }
 
   return (
-    <DashboardLayout role="district" hideSearch>
+    <DashboardLayout role="district">
       <div className="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
         <div>
           <h2 className="fw-bold mb-1">Aktiviti Daerah</h2>

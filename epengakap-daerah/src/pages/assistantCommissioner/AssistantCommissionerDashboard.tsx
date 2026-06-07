@@ -267,7 +267,7 @@ export default function AssistantCommissionerDashboard() {
 
   if (!canViewDashboard) {
     return (
-      <DashboardLayout role="assistantCommissioner" hideSearch>
+      <DashboardLayout role="assistantCommissioner">
         <div className="card border-0 shadow-sm rounded-4">
           <div className="card-body text-center py-5">
             <i className="bi bi-shield-lock fs-1 text-danger d-block mb-3"></i>
@@ -282,7 +282,7 @@ export default function AssistantCommissionerDashboard() {
   }
 
   return (
-    <DashboardLayout role="assistantCommissioner" hideSearch>
+    <DashboardLayout role="assistantCommissioner">
       <div className="d-flex flex-column flex-lg-row justify-content-between align-items-lg-start gap-3 mb-4">
         <div>
           <h2 className="fw-bold mb-1">Dashboard Penolong Pesuruhjaya</h2>

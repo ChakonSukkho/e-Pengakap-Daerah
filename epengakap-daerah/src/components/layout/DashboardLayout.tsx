@@ -12,13 +12,11 @@ type RoleType =
 type DashboardLayoutProps = {
   children: React.ReactNode;
   role?: RoleType;
-  hideSearch?: boolean;
 };
 
 export default function DashboardLayout({
   children,
   role = "district",
-  hideSearch = false,
 }: DashboardLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -49,7 +47,6 @@ export default function DashboardLayout({
       >
         <Topbar
           role={role}
-          hideSearch={hideSearch}
           onToggleSidebar={() => setCollapsed(!collapsed)}
         />
 

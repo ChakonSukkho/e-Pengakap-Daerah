@@ -326,7 +326,7 @@ export default function DistrictProfilePage() {
 
   if (loading) {
     return (
-      <DashboardLayout role="district" hideSearch>
+      <DashboardLayout role="district">
         <div className="text-center py-5">
           <div className="spinner-border text-success"></div>
           <p className="text-muted mt-3 mb-0">Memuatkan profil...</p>
@@ -337,7 +337,7 @@ export default function DistrictProfilePage() {
 
   if (!profile) {
     return (
-      <DashboardLayout role="district" hideSearch>
+      <DashboardLayout role="district">
         <div className="alert alert-warning rounded-4">
           Profil pengguna tidak dijumpai.
         </div>
@@ -346,7 +346,7 @@ export default function DistrictProfilePage() {
   }
 
   return (
-    <DashboardLayout role="district" hideSearch>
+    <DashboardLayout role="district">
       <div className="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-4">
         <div>
           <h2 className="fw-bold mb-1">Profil Saya</h2>

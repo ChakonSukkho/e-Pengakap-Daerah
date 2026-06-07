@@ -497,7 +497,7 @@ export default function AuditLogPage() {
   ].filter(Boolean).length;
 
   return (
-    <DashboardLayout role="district" hideSearch>
+    <DashboardLayout role="district">
       <div className="d-flex flex-column flex-lg-row justify-content-between align-items-lg-start gap-3 mb-4">
         <div>
           <h2 className="fw-bold mb-1">Log Audit</h2>

@@ -321,7 +321,13 @@ export default function ReportsPage() {
       ["Aktiviti Akan Datang", upcomingActivities],
       ["Aktiviti Selesai", completedActivities],
       [],
-      ["Jenis Laporan", "Nama", "Kumpulan/Sekolah", "Kategori/Status", "Tarikh/Lokasi"],
+      [
+        "Jenis Laporan",
+        "Nama",
+        "Kumpulan/Sekolah",
+        "Kategori/Status",
+        "Tarikh/Lokasi",
+      ],
       ...members.map((member) => [
         "Ahli",
         member.full_name || "-",
@@ -372,6 +378,303 @@ export default function ReportsPage() {
     );
   }
 
+  async function exportPdf() {
+    const printableHtml = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Laporan Daerah ${districtName}</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              padding: 32px;
+              color: #222;
+            }
+
+            h1, h2, h3 {
+              margin-bottom: 6px;
+            }
+
+            .muted {
+              color: #666;
+              font-size: 13px;
+            }
+
+            .summary {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 12px;
+              margin: 24px 0;
+            }
+
+            .box {
+              border: 1px solid #ddd;
+              border-radius: 10px;
+              padding: 14px;
+            }
+
+            .box .label {
+              color: #666;
+              font-size: 12px;
+            }
+
+            .box .value {
+              font-size: 26px;
+              font-weight: bold;
+              margin-top: 4px;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 12px;
+              margin-bottom: 28px;
+            }
+
+            th, td {
+              border: 1px solid #ddd;
+              padding: 8px;
+              font-size: 12px;
+              text-align: left;
+            }
+
+            th {
+              background: #f4f4f4;
+            }
+
+            .section {
+              margin-top: 24px;
+              page-break-inside: avoid;
+            }
+
+            @media print {
+              body {
+                padding: 20px;
+              }
+
+              .summary {
+                grid-template-columns: repeat(2, 1fr);
+              }
+            }
+          </style>
+        </head>
+
+        <body>
+          <h1>Laporan Daerah</h1>
+          <div class="muted">Daerah: ${districtName}</div>
+          <div class="muted">Tarikh export: ${new Date().toLocaleString(
+            "ms-MY"
+          )}</div>
+
+          <div class="summary">
+            <div class="box">
+              <div class="label">Jumlah Ahli</div>
+              <div class="value">${members.length}</div>
+            </div>
+            <div class="box">
+              <div class="label">Ahli Aktif</div>
+              <div class="value">${activeMembers}</div>
+            </div>
+            <div class="box">
+              <div class="label">Jumlah Kumpulan</div>
+              <div class="value">${groups.length}</div>
+            </div>
+            <div class="box">
+              <div class="label">Jumlah Aktiviti</div>
+              <div class="value">${activities.length}</div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h2>Ahli Mengikut Kategori</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Kategori</th>
+                  <th>Jumlah</th>
+                  <th>Peratus</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${Object.entries(membersByCategory)
+                  .map(
+                    ([category, count]) => `
+                      <tr>
+                        <td>${category}</td>
+                        <td>${count}</td>
+                        <td>${getPercent(count, members.length)}%</td>
+                      </tr>
+                    `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section">
+            <h2>Ahli Mengikut Jantina</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Jantina</th>
+                  <th>Jumlah</th>
+                  <th>Peratus</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${Object.entries(membersByGender)
+                  .map(
+                    ([gender, count]) => `
+                      <tr>
+                        <td>${gender}</td>
+                        <td>${count}</td>
+                        <td>${getPercent(count, members.length)}%</td>
+                      </tr>
+                    `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section">
+            <h2>Ahli Mengikut Kumpulan</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Kumpulan</th>
+                  <th>Jumlah Ahli</th>
+                  <th>Peratus</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${Object.entries(membersByGroup)
+                  .map(
+                    ([group, count]) => `
+                      <tr>
+                        <td>${group}</td>
+                        <td>${count}</td>
+                        <td>${getPercent(count, members.length)}%</td>
+                      </tr>
+                    `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section">
+            <h2>Aktiviti Mengikut Status</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Jumlah Aktiviti</th>
+                  <th>Peratus</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${Object.entries(activityByStatus)
+                  .map(
+                    ([status, count]) => `
+                      <tr>
+                        <td>${status}</td>
+                        <td>${count}</td>
+                        <td>${getPercent(count, activities.length)}%</td>
+                      </tr>
+                    `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section">
+            <h2>Senarai Kumpulan</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Kumpulan</th>
+                  <th>Sekolah</th>
+                  <th>Pemimpin</th>
+                  <th>Ahli</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${groups
+                  .map(
+                    (group) => `
+                      <tr>
+                        <td>${group.group_name || "-"}</td>
+                        <td>${group.school_name || "-"}</td>
+                        <td>${group.leader_name || "-"}</td>
+                        <td>${group.actual_member_count || 0}</td>
+                        <td>${normalizeStatus(group.status)}</td>
+                      </tr>
+                    `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section">
+            <h2>Aktiviti Terkini</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Tarikh</th>
+                  <th>Aktiviti</th>
+                  <th>Lokasi</th>
+                  <th>Kumpulan</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${activities
+                  .slice(0, 20)
+                  .map(
+                    (activity) => `
+                      <tr>
+                        <td>${formatDate(activity.activity_date)}</td>
+                        <td>${activity.activity_name || "-"}</td>
+                        <td>${activity.location || "-"}</td>
+                        <td>${activity.group_name || "Semua Kumpulan"}</td>
+                        <td>${normalizeStatus(activity.status)}</td>
+                      </tr>
+                    `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const printWindow = window.open("", "_blank");
+
+    if (!printWindow) {
+      alert("Popup blocked. Sila benarkan popup untuk export PDF.");
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(printableHtml);
+    printWindow.document.close();
+
+    printWindow.onload = () => {
+      printWindow.focus();
+      printWindow.print();
+    };
+
+    await insertAuditLog(
+      "Export Laporan PDF",
+      `${currentUser.role} export laporan PDF daerah ${districtName}.`
+    );
+  }
+
   if (!canViewReports) {
     return (
       <DashboardLayout role="assistantCommissioner">
@@ -409,14 +712,34 @@ export default function ReportsPage() {
             Refresh
           </button>
 
-          <button
-            className="btn btn-success"
-            onClick={exportCsv}
-            disabled={loading || !districtEnvironmentId}
-          >
-            <i className="bi bi-download me-1"></i>
-            Export CSV
-          </button>
+          <div className="dropdown">
+            <button
+              className="btn btn-success dropdown-toggle"
+              type="button"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+              disabled={loading || !districtEnvironmentId}
+            >
+              <i className="bi bi-download me-1"></i>
+              Export
+            </button>
+
+            <ul className="dropdown-menu dropdown-menu-end shadow-sm border-0 rounded-3">
+              <li>
+                <button className="dropdown-item" onClick={exportCsv}>
+                  <i className="bi bi-filetype-csv me-2"></i>
+                  Export CSV
+                </button>
+              </li>
+
+              <li>
+                <button className="dropdown-item" onClick={exportPdf}>
+                  <i className="bi bi-file-earmark-pdf me-2"></i>
+                  Export PDF
+                </button>
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
 
@@ -606,10 +929,52 @@ export default function ReportsPage() {
                 <thead className="table-light">
                   <tr>
                     <th className="px-4 py-3">Kumpulan</th>
+                    <th className="px-4 py-3">Jumlah Ahli</th>
+                    <th className="px-4 py-3">Peratus</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {Object.entries(membersByGroup).length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="text-center py-4 text-muted">
+                        Tiada data kumpulan.
+                      </td>
+                    </tr>
+                  ) : (
+                    Object.entries(membersByGroup).map(([group, count]) => {
+                      const percent = getPercent(count, members.length);
+
+                      return (
+                        <tr key={group}>
+                          <td className="px-4 py-3 fw-semibold">{group}</td>
+                          <td className="px-4 py-3">{count}</td>
+                          <td className="px-4 py-3">{percent}%</td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card border-0 shadow-sm rounded-4 mb-4">
+            <div className="card-header bg-white border-0 p-4">
+              <h5 className="fw-bold mb-1">Senarai Kumpulan</h5>
+              <p className="text-muted small mb-0">
+                Senarai kumpulan dalam daerah sendiri.
+              </p>
+            </div>
+
+            <div className="card-body table-responsive p-0">
+              <table className="table table-hover align-middle mb-0">
+                <thead className="table-light">
+                  <tr>
+                    <th className="px-4 py-3">Kumpulan</th>
                     <th className="px-4 py-3">Sekolah</th>
                     <th className="px-4 py-3">Pemimpin</th>
-                    <th className="px-4 py-3">Jumlah Ahli</th>
-                    <th className="px-4 py-3">Aktif</th>
+                    <th className="px-4 py-3">Ahli</th>
                     <th className="px-4 py-3">Status</th>
                   </tr>
                 </thead>
@@ -617,7 +982,7 @@ export default function ReportsPage() {
                 <tbody>
                   {groups.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="text-center py-4 text-muted">
+                      <td colSpan={5} className="text-center py-4 text-muted">
                         Tiada data kumpulan.
                       </td>
                     </tr>
@@ -640,10 +1005,6 @@ export default function ReportsPage() {
                           <span className="badge bg-light text-dark border">
                             {group.actual_member_count || 0}
                           </span>
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {group.active_member_count || 0}
                         </td>
 
                         <td className="px-4 py-3">
