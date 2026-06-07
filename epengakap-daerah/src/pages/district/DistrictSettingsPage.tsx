@@ -39,7 +39,7 @@ type DistrictSettingForm = {
   commissioner: string;
   address: string;
   status: string;
-  profile_image_url: string;
+  logo_url: string;
 };
 
 type StateRow = {
@@ -181,11 +181,10 @@ export default function DistrictSettingsPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const currentUser = useMemo(() => getCurrentUser(), []);
   const isSuperAdmin = isSuperAdminRole(currentUser.role);
-  const loginEmail = currentUser.email || "-";
   const districtEnvironmentId = currentUser.district_environment_id || "";
 
   const [form, setForm] = useState<DistrictSettingForm>({
@@ -197,7 +196,7 @@ export default function DistrictSettingsPage() {
     commissioner: "",
     address: "",
     status: "Aktif",
-    profile_image_url: "",
+    logo_url: "",
   });
 
   useEffect(() => {
@@ -378,10 +377,10 @@ export default function DistrictSettingsPage() {
         phone: formatMalaysiaPhone(
           setting.phone || envData?.official_phone || ""
         ),
-        commissioner: setting.commissioner || commissionerName || "",
+        commissioner: commissionerName || setting.commissioner || "",
         address: setting.address || envData?.office_address || "",
         status: normalizeStatus(setting.status || envData?.status),
-        profile_image_url: setting.profile_image_url || "",
+        logo_url: setting.profile_image_url || "",
       });
 
       const matchedState = stateList.find(
@@ -409,7 +408,7 @@ export default function DistrictSettingsPage() {
       commissioner: commissionerName || "",
       address: envData?.office_address || "",
       status: normalizeStatus(envData?.status),
-      profile_image_url: "",
+      logo_url: "",
     };
 
     setForm(defaultForm);
@@ -426,26 +425,26 @@ export default function DistrictSettingsPage() {
     }
   }
 
-  async function uploadProfileImage(file: File) {
+  async function uploadDistrictLogo(file: File) {
     if (!file) return;
 
     const allowedTypes = ["image/jpeg", "image/png", "image/jpg", "image/webp"];
 
     if (!allowedTypes.includes(file.type)) {
-      alert("Format gambar tidak sah. Sila upload JPG, PNG atau WEBP.");
+      alert("Format logo tidak sah. Sila upload JPG, PNG atau WEBP.");
       return;
     }
 
     if (file.size > 2 * 1024 * 1024) {
-      alert("Saiz gambar terlalu besar. Maksimum 2MB.");
+      alert("Saiz logo terlalu besar. Maksimum 2MB.");
       return;
     }
 
-    setUploading(true);
+    setUploadingLogo(true);
 
     const fileExt = file.name.split(".").pop();
     const safeDistrictId = districtEnvironmentId || "unknown";
-    const fileName = `${safeDistrictId}/district-profile-${Date.now()}.${fileExt}`;
+    const fileName = `districts/${safeDistrictId}/logo-daerah-${Date.now()}.${fileExt}`;
 
     const { error: uploadError } = await supabase.storage
       .from("district-profile")
@@ -456,7 +455,7 @@ export default function DistrictSettingsPage() {
 
     if (uploadError) {
       alert(uploadError.message);
-      setUploading(false);
+      setUploadingLogo(false);
       return;
     }
 
@@ -464,47 +463,37 @@ export default function DistrictSettingsPage() {
       .from("district-profile")
       .getPublicUrl(fileName);
 
-    const imageUrl = data.publicUrl;
+    const logoUrl = data.publicUrl;
 
     setForm((prev) => ({
       ...prev,
-      profile_image_url: imageUrl,
+      logo_url: logoUrl,
     }));
 
     if (settingId) {
       const { error } = await supabase
         .from("district_settings")
         .update({
-          profile_image_url: imageUrl,
+          profile_image_url: logoUrl,
           updated_at: new Date().toISOString(),
         })
         .eq("id", settingId);
 
       if (error) {
         alert(error.message);
-        setUploading(false);
+        setUploadingLogo(false);
         return;
       }
 
       await addAuditLog(
         "UPDATE",
-        `Kemaskini gambar profil daerah ${form.district || ""}`,
+        `Kemaskini logo rasmi daerah ${form.district || ""}`,
         settingId
       );
     }
 
-    const savedUser = getCurrentUser();
-
-    const updatedUser = {
-      ...savedUser,
-      profile_image_url: imageUrl,
-    };
-
-    localStorage.setItem("user", JSON.stringify(updatedUser));
-    localStorage.setItem("auth_user", JSON.stringify(updatedUser));
-    window.dispatchEvent(new Event("userProfileUpdated"));
-
-    setUploading(false);
+    setUploadingLogo(false);
+    alert("Logo daerah berjaya dikemaskini.");
   }
 
   function validateSettings() {
@@ -546,7 +535,7 @@ export default function DistrictSettingsPage() {
     }
 
     if (!form.commissioner.trim()) {
-      alert("Sila isi nama Pesuruhjaya Daerah.");
+      alert("Nama Pesuruhjaya Daerah tidak dijumpai. Sila hubungi Super Admin.");
       return false;
     }
 
@@ -568,7 +557,7 @@ export default function DistrictSettingsPage() {
       commissioner: form.commissioner.trim(),
       address: form.address.trim() || null,
       status: form.status,
-      profile_image_url: form.profile_image_url || null,
+      profile_image_url: form.logo_url || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -633,19 +622,6 @@ export default function DistrictSettingsPage() {
         .eq("id", environment.id);
     }
 
-    const savedUser = getCurrentUser();
-
-    const updatedUser = {
-      ...savedUser,
-      profile_image_url: form.profile_image_url,
-      district: savedUser.district || form.district,
-      state: savedUser.state || form.state,
-    };
-
-    localStorage.setItem("user", JSON.stringify(updatedUser));
-    localStorage.setItem("auth_user", JSON.stringify(updatedUser));
-    window.dispatchEvent(new Event("userProfileUpdated"));
-
     setSaving(false);
     alert("Tetapan daerah berjaya disimpan.");
 
@@ -669,8 +645,8 @@ export default function DistrictSettingsPage() {
         <div>
           <h2 className="fw-bold mb-1">Tetapan Daerah</h2>
           <p className="text-muted mb-0">
-            Urus maklumat rasmi daerah. Negeri dan daerah ditetapkan oleh Super
-            Admin.
+            Urus maklumat rasmi daerah dan logo MPD. Maklumat sistem dikawal
+            oleh Super Admin.
           </p>
         </div>
 
@@ -686,8 +662,8 @@ export default function DistrictSettingsPage() {
       {!isSuperAdmin && (
         <div className="alert alert-info rounded-4 border-0 shadow-sm">
           <i className="bi bi-info-circle me-2"></i>
-          Negeri, daerah dan status environment dikunci kerana maklumat ini
-          ditetapkan oleh Super Admin semasa approval daerah.
+          Negeri, daerah, Pesuruhjaya Daerah dan status environment dikunci
+          kerana maklumat ini ditetapkan oleh Super Admin semasa approval daerah.
         </div>
       )}
 
@@ -695,83 +671,15 @@ export default function DistrictSettingsPage() {
         <div className="col-lg-8">
           <div className="card border-0 shadow-sm rounded-4">
             <div className="card-header bg-white border-0 p-4">
-              <h5 className="fw-bold mb-1">Maklumat Daerah</h5>
+              <h5 className="fw-bold mb-1">Maklumat Rasmi Daerah</h5>
               <p className="text-muted small mb-0">
-                Maklumat ini akan digunakan sebagai profil rasmi daerah.
+                Maklumat ini digunakan sebagai identiti rasmi daerah, bukan
+                profil user.
               </p>
             </div>
 
             <div className="card-body p-4 pt-0">
               <div className="row g-3">
-                <div className="col-md-6">
-                  <label className="form-label">Negeri</label>
-                  <select
-                    className="form-select"
-                    value={selectedStateId}
-                    disabled={!isSuperAdmin}
-                    onChange={(e) => {
-                      const stateId = e.target.value;
-                      const selectedState = states.find(
-                        (state) => state.id === stateId
-                      );
-
-                      setSelectedStateId(stateId);
-
-                      setForm({
-                        ...form,
-                        state: selectedState?.state_name || "",
-                        district: "",
-                      });
-
-                      fetchDistrictsByState(stateId);
-                    }}
-                  >
-                    <option value="">Pilih Negeri</option>
-
-                    {states.map((state) => (
-                      <option key={state.id} value={state.id}>
-                        {state.state_name}
-                      </option>
-                    ))}
-                  </select>
-
-                  {!isSuperAdmin && (
-                    <small className="text-muted">
-                      Negeri hanya boleh diubah oleh Super Admin.
-                    </small>
-                  )}
-                </div>
-
-                <div className="col-md-6">
-                  <label className="form-label">Daerah</label>
-                  <select
-                    className="form-select"
-                    value={form.district}
-                    disabled={!isSuperAdmin || !selectedStateId}
-                    onChange={(e) =>
-                      setForm({ ...form, district: e.target.value })
-                    }
-                  >
-                    <option value="">Pilih Daerah</option>
-
-                    {districts.map((district) => (
-                      <option key={district.id} value={district.district_name}>
-                        {district.district_name}
-                      </option>
-                    ))}
-                  </select>
-
-                  {!isSuperAdmin ? (
-                    <small className="text-muted">
-                      Daerah hanya boleh diubah oleh Super Admin.
-                    </small>
-                  ) : !selectedStateId ? (
-                    <small className="text-muted">
-                      Pilih negeri dahulu untuk lihat senarai daerah.
-                    </small>
-                  ) : null}
-                </div>
-
                 <div className="col-md-12">
                   <label className="form-label">Nama Rasmi Daerah</label>
                   <input
@@ -780,7 +688,7 @@ export default function DistrictSettingsPage() {
                     onChange={(e) =>
                       setForm({ ...form, official_name: e.target.value })
                     }
-                    placeholder="Contoh: Majlis Pengakap Daerah Petaling"
+                    placeholder="Contoh: Majlis Pengakap Daerah Kulim"
                   />
                 </div>
 
@@ -801,7 +709,7 @@ export default function DistrictSettingsPage() {
                 </div>
 
                 <div className="col-md-6">
-                  <label className="form-label">Telefon Rasmi</label>
+                  <label className="form-label">Telefon Rasmi Daerah</label>
                   <input
                     className="form-control"
                     value={form.phone}
@@ -815,21 +723,7 @@ export default function DistrictSettingsPage() {
                     placeholder="Contoh: 012-345 6789"
                   />
                   <small className="text-muted">
-                    Format nombor Malaysia, contoh 012-345 6789 atau 03-1234
-                    5678.
-                  </small>
-                </div>
-
-                <div className="col-md-12">
-                  <label className="form-label">Pesuruhjaya Daerah</label>
-                  <input
-                    className="form-control bg-light"
-                    value={form.commissioner}
-                    readOnly
-                    placeholder="Nama Pesuruhjaya Daerah"
-                  />
-                  <small className="text-muted">
-                    Nama ini diambil daripada akaun Pesuruhjaya Daerah yang sedang ditetapkan oleh Super Admin.
+                    Telefon ini untuk urusan rasmi daerah.
                   </small>
                 </div>
 
@@ -845,36 +739,13 @@ export default function DistrictSettingsPage() {
                     placeholder="Alamat pejabat daerah"
                   ></textarea>
                 </div>
-
-                <div className="col-md-6">
-                  <label className="form-label">Status Environment</label>
-                  <select
-                    className="form-select"
-                    value={form.status}
-                    disabled={!isSuperAdmin}
-                    onChange={(e) =>
-                      setForm({ ...form, status: e.target.value })
-                    }
-                  >
-                    <option>Aktif</option>
-                    <option>Tidak Aktif</option>
-                    <option>Digantung</option>
-                    <option>Pending</option>
-                  </select>
-
-                  {!isSuperAdmin && (
-                    <small className="text-muted">
-                      Status environment hanya boleh diubah oleh Super Admin.
-                    </small>
-                  )}
-                </div>
               </div>
 
               <div className="mt-4 d-flex gap-2">
                 <button
                   className="btn btn-success"
                   onClick={saveSettings}
-                  disabled={saving || uploading}
+                  disabled={saving || uploadingLogo}
                 >
                   <i className="bi bi-save me-1"></i>
                   {saving ? "Menyimpan..." : "Simpan Tetapan"}
@@ -883,10 +754,64 @@ export default function DistrictSettingsPage() {
                 <button
                   className="btn btn-outline-secondary"
                   onClick={loadPage}
-                  disabled={saving || uploading}
+                  disabled={saving || uploadingLogo}
                 >
                   Reset
                 </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="card border-0 shadow-sm rounded-4 mt-4">
+            <div className="card-header bg-white border-0 p-4">
+              <h5 className="fw-bold mb-1">Maklumat Sistem</h5>
+              <p className="text-muted small mb-0">
+                Maklumat ini dipaparkan untuk rujukan dan hanya boleh diubah
+                oleh Super Admin.
+              </p>
+            </div>
+
+            <div className="card-body p-4 pt-0">
+              <div className="row g-3">
+                <div className="col-md-6">
+                  <label className="form-label">Negeri</label>
+                  <input
+                    className="form-control bg-light"
+                    value={form.state || "-"}
+                    readOnly
+                  />
+                </div>
+
+                <div className="col-md-6">
+                  <label className="form-label">Daerah</label>
+                  <input
+                    className="form-control bg-light"
+                    value={form.district || "-"}
+                    readOnly
+                  />
+                </div>
+
+                <div className="col-md-6">
+                  <label className="form-label">Pesuruhjaya Daerah</label>
+                  <input
+                    className="form-control bg-light"
+                    value={form.commissioner || "-"}
+                    readOnly
+                  />
+                  <small className="text-muted">
+                    Ini ialah akaun Pesuruhjaya yang ditetapkan oleh Super
+                    Admin.
+                  </small>
+                </div>
+
+                <div className="col-md-6">
+                  <label className="form-label">Status Environment</label>
+                  <input
+                    className="form-control bg-light"
+                    value={form.status || "-"}
+                    readOnly
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -895,14 +820,14 @@ export default function DistrictSettingsPage() {
         <div className="col-lg-4">
           <div className="card border-0 shadow-sm rounded-4 mb-4">
             <div className="card-body p-4">
-              <h5 className="fw-bold mb-3">Ringkasan Daerah</h5>
+              <h5 className="fw-bold mb-3">Logo Daerah</h5>
 
               <div className="text-center mb-4">
-                {form.profile_image_url ? (
+                {form.logo_url ? (
                   <img
-                    src={form.profile_image_url}
-                    alt="Profil Pesuruhjaya Daerah"
-                    className="rounded-circle border mb-3"
+                    src={form.logo_url}
+                    alt="Logo Daerah"
+                    className="rounded-circle border mb-3 bg-white"
                     style={{
                       width: 120,
                       height: 120,
@@ -914,37 +839,42 @@ export default function DistrictSettingsPage() {
                     className="rounded-circle bg-success text-white d-flex align-items-center justify-content-center fw-bold mx-auto mb-3"
                     style={{ width: 120, height: 120, fontSize: 34 }}
                   >
-                    {getInitials(form.commissioner || "PD")}
+                    {getInitials(form.district || "MPD")}
                   </div>
                 )}
 
                 <h6 className="fw-bold mb-0">
-                  {form.commissioner || "Pesuruhjaya Daerah"}
+                  {form.official_name || "Majlis Pengakap Daerah"}
                 </h6>
 
-                <small className="text-muted d-block">{loginEmail}</small>
-
                 <small className="text-muted d-block mt-1">
-                  {form.official_name || "Majlis Pengakap Daerah"}
+                  Logo rasmi daerah / MPD
                 </small>
 
                 <div className="mt-3">
                   <label className="btn btn-outline-success btn-sm">
-                    {uploading ? "Uploading..." : "Upload Gambar"}
+                    {uploadingLogo ? "Uploading..." : "Upload Logo Daerah"}
                     <input
                       type="file"
                       accept="image/*"
                       hidden
-                      disabled={uploading}
+                      disabled={uploadingLogo}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
 
                         if (file) {
-                          uploadProfileImage(file);
+                          uploadDistrictLogo(file);
                         }
+
+                        e.target.value = "";
                       }}
                     />
                   </label>
+                </div>
+
+                <div className="small text-muted mt-2">
+                  Logo ini untuk identiti rasmi daerah, bukan gambar profil
+                  user.
                 </div>
               </div>
 
@@ -961,7 +891,7 @@ export default function DistrictSettingsPage() {
               </div>
 
               <div className="mb-3">
-                <small className="text-muted d-block">E-mel Rasmi Daerah</small>
+                <small className="text-muted d-block">E-mel Rasmi</small>
                 <strong>{form.email || "-"}</strong>
               </div>
 
@@ -971,16 +901,8 @@ export default function DistrictSettingsPage() {
               </div>
 
               <div>
-                <small className="text-muted d-block">Status</small>
-                <span
-                  className={`badge ${
-                    form.status === "Aktif"
-                      ? "bg-success"
-                      : "bg-warning text-dark"
-                  }`}
-                >
-                  {form.status}
-                </span>
+                <small className="text-muted d-block">Pesuruhjaya Daerah</small>
+                <strong>{form.commissioner || "-"}</strong>
               </div>
             </div>
           </div>

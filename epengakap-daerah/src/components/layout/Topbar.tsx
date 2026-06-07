@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../../services/supabaseClient";
 
 type RoleType =
   | "superadmin"
@@ -23,31 +22,31 @@ type ProfileState = {
 
 const fallbackProfile: Record<RoleType, ProfileState> = {
   superadmin: {
-    name: "Ahmad Razali",
+    name: "Super Admin",
     roleName: "Super Admin",
     initials: "SA",
     profileImageUrl: "",
   },
   district: {
-    name: "Encik Kamarul",
+    name: "Pesuruhjaya Daerah",
     roleName: "Pesuruhjaya Daerah",
     initials: "PD",
     profileImageUrl: "",
   },
   assistantCommissioner: {
-    name: "Pn. Siti Aminah",
-    roleName: "Penolong Pesuruhjaya",
+    name: "Penolong Pesuruhjaya",
+    roleName: "Penolong Pesuruhjaya Daerah",
     initials: "PP",
     profileImageUrl: "",
   },
   groupLeader: {
-    name: "En. Farid Hassan",
+    name: "Pemimpin Kumpulan",
     roleName: "Pemimpin Kumpulan",
     initials: "PK",
     profileImageUrl: "",
   },
   assistantLeader: {
-    name: "Cik Nur Aisyah",
+    name: "Penolong Pemimpin",
     roleName: "Penolong Pemimpin",
     initials: "PT",
     profileImageUrl: "",
@@ -65,90 +64,68 @@ function getInitials(name: string) {
 }
 
 function getCurrentUser() {
-  return JSON.parse(
-    localStorage.getItem("user") ||
-      localStorage.getItem("auth_user") ||
-      "{}"
-  );
+  try {
+    return JSON.parse(
+      localStorage.getItem("user") ||
+        localStorage.getItem("auth_user") ||
+        "{}"
+    );
+  } catch {
+    return {};
+  }
+}
+
+function normalizeRole(role?: string | null) {
+  if (role === "District") return "Pesuruhjaya Daerah";
+  if (role === "Penolong Pesuruhjaya") {
+    return "Penolong Pesuruhjaya Daerah";
+  }
+
+  return role || "";
+}
+
+function buildProfile(role: RoleType): ProfileState {
+  const savedUser = getCurrentUser();
+  const fallback = fallbackProfile[role];
+
+  const displayName =
+    savedUser.full_name ||
+    savedUser.name ||
+    fallback.name;
+
+  const displayRole =
+    normalizeRole(savedUser.role) ||
+    fallback.roleName;
+
+  return {
+    name: displayName,
+    roleName: displayRole,
+    initials: getInitials(displayName || fallback.name),
+    profileImageUrl: savedUser.profile_image_url || "",
+  };
 }
 
 export default function Topbar({
   role = "district",
   hideSearch = false,
 }: TopbarProps) {
-  const [profile, setProfile] = useState<ProfileState>(() => {
-  const savedUser = getCurrentUser();
-  const loginName = savedUser.full_name || savedUser.name || fallbackProfile[role].name;
-
-  return {
-    name: loginName,
-    roleName: savedUser.role || fallbackProfile[role].roleName,
-    initials: getInitials(loginName),
-    profileImageUrl: savedUser.profile_image_url || "",
-  };
-});
-
-  async function loadProfile() {
-    const savedUser = getCurrentUser();
-
-    const loginName =
-      savedUser.full_name || savedUser.name || fallbackProfile[role].name;
-
-    let nextProfile: ProfileState = {
-      name: loginName,
-      roleName: savedUser.role || fallbackProfile[role].roleName,
-      initials: getInitials(loginName),
-      profileImageUrl: savedUser.profile_image_url || "",
-    };
-
-    // For Pesuruhjaya Daerah, sync profile from district_settings DB
-    if (role === "district") {
-      let query = supabase
-        .from("district_settings")
-        .select("commissioner, profile_image_url, district")
-        .limit(1);
-
-      if (savedUser.district || savedUser.district_name || savedUser.daerah) {
-        query = query.eq(
-          "district",
-          savedUser.district || savedUser.district_name || savedUser.daerah
-        );
-      }
-
-      const { data, error } = await query.maybeSingle();
-
-      if (!error && data) {
-        const commissionerName = data.commissioner || loginName;
-
-        nextProfile = {
-          ...nextProfile,
-          name: commissionerName,
-          initials: getInitials(commissionerName),
-          profileImageUrl: data.profile_image_url || nextProfile.profileImageUrl,
-        };
-
-        const updatedUser = {
-          ...savedUser,
-          name: commissionerName,
-          full_name: commissionerName,
-          profile_image_url: data.profile_image_url || "",
-        };
-
-        localStorage.setItem("user", JSON.stringify(updatedUser));
-        localStorage.setItem("auth_user", JSON.stringify(updatedUser));
-      }
-    }
-
-    setProfile(nextProfile);
-  }
+  const [profile, setProfile] = useState<ProfileState>(() =>
+    buildProfile(role)
+  );
 
   useEffect(() => {
-    loadProfile();
+    function refreshProfile() {
+      setProfile(buildProfile(role));
+    }
 
-    window.addEventListener("userProfileUpdated", loadProfile);
+    refreshProfile();
+
+    window.addEventListener("userProfileUpdated", refreshProfile);
+    window.addEventListener("storage", refreshProfile);
 
     return () => {
-      window.removeEventListener("userProfileUpdated", loadProfile);
+      window.removeEventListener("userProfileUpdated", refreshProfile);
+      window.removeEventListener("storage", refreshProfile);
     };
   }, [role]);
 
