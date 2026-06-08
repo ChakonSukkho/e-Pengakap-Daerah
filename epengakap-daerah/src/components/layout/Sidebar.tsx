@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import pengakapLogo from "../../assets/newLogoIcon.png";
 
 type RoleType =
@@ -16,54 +16,223 @@ type MenuItem = {
 
 const menus: Record<RoleType, MenuItem[]> = {
   superadmin: [
-    { to: "/superadmin", label: "Papan Pemuka", icon: "bi-speedometer2" },
-    { to: "/superadmin/applications", label: "Permohonan Daerah", icon: "bi-file-earmark-check" },
-    { to: "/superadmin/districts", label: "Senarai Daerah", icon: "bi-building" },
-    { to: "/superadmin/users", label: "Pengguna Sistem", icon: "bi-person-gear" },
-    { to: "/superadmin/master-data", label: "Data Induk", icon: "bi-database" },
-    { to: "/superadmin/audit", label: "Log Audit", icon: "bi-journal-text" },
+    {
+      to: "/superadmin/dashboard",
+      label: "Papan Pemuka",
+      icon: "bi-speedometer2",
+    },
+    {
+      to: "/superadmin/applications",
+      label: "Permohonan Daerah",
+      icon: "bi-file-earmark-check",
+    },
+    {
+      to: "/superadmin/districts",
+      label: "Senarai Daerah",
+      icon: "bi-building",
+    },
+    {
+      to: "/superadmin/users",
+      label: "Pengguna Sistem",
+      icon: "bi-person-gear",
+    },
+    {
+      to: "/superadmin/master-data",
+      label: "Data Induk",
+      icon: "bi-database",
+    },
+    {
+      to: "/superadmin/audit",
+      label: "Log Audit",
+      icon: "bi-journal-text",
+    },
   ],
+
   district: [
-    { to: "/district/dashboard", label: "Papan Pemuka", icon: "bi-speedometer2" },
-    { to: "/district/users", label: "Pengguna", icon: "bi-person-gear" },
-    { to: "/district/groups", label: "Kumpulan / Sekolah", icon: "bi-mortarboard" },
-    { to: "/district/members", label: "Ahli Pengakap", icon: "bi-people" },
-    { to: "/district/activities", label: "Activities", icon: "bi-calendar-event" },
-    { to: "/district/settings", label: "Tetapan Daerah", icon: "bi-gear" },
-    { to: "/district/profile", label: "Profil Saya", icon: "bi-person-circle" },
-    { to: "/district/audit", label: "Log Audit", icon: "bi-journal-text" },
+    {
+      to: "/district/dashboard",
+      label: "Papan Pemuka",
+      icon: "bi-speedometer2",
+    },
+    {
+      to: "/district/users",
+      label: "Pengguna",
+      icon: "bi-person-gear",
+    },
+    {
+      to: "/district/groups",
+      label: "Kumpulan / Sekolah",
+      icon: "bi-mortarboard",
+    },
+    {
+      to: "/district/members",
+      label: "Ahli Pengakap",
+      icon: "bi-people",
+    },
+    {
+      to: "/district/activities",
+      label: "Aktiviti",
+      icon: "bi-calendar-event",
+    },
+    {
+      to: "/district/settings",
+      label: "Tetapan Daerah",
+      icon: "bi-gear",
+    },
+    {
+      to: "/district/profile",
+      label: "Profil Saya",
+      icon: "bi-person-circle",
+    },
+    {
+      to: "/district/audit",
+      label: "Log Audit",
+      icon: "bi-journal-text",
+    },
   ],
+
   assistantCommissioner: [
-    { to: "/assistant-commissioner/dashboard", label: "Papan Pemuka", icon: "bi-speedometer2" },
-    { to: "/assistant-commissioner/groups", label: "Kumpulan / Sekolah", icon: "bi-mortarboard" },
-    { to: "/assistant-commissioner/members", label: "Ahli Pengakap", icon: "bi-people" },
-    { to: "/assistant-commissioner/activities", label: "Activiti", icon: "bi-calendar-event" },
-    { to: "/assistant-commissioner/profile", label: "Profil Saya", icon: "bi-person-circle" },
-    { to: "/assistant-commissioner/reports", label: "Laporan", icon: "bi-file-earmark-text" },
+    {
+      to: "/assistant-commissioner/dashboard",
+      label: "Papan Pemuka",
+      icon: "bi-speedometer2",
+    },
+    {
+      to: "/assistant-commissioner/members",
+      label: "Ahli Daerah",
+      icon: "bi-people",
+    },
+    {
+      to: "/assistant-commissioner/groups",
+      label: "Kumpulan / Sekolah",
+      icon: "bi-mortarboard",
+    },
+    {
+      to: "/assistant-commissioner/activities",
+      label: "Aktiviti Daerah",
+      icon: "bi-calendar-event",
+    },
+    {
+      to: "/assistant-commissioner/reports",
+      label: "Laporan",
+      icon: "bi-file-earmark-text",
+    },
+    {
+      to: "/assistant-commissioner/profile",
+      label: "Profil Saya",
+      icon: "bi-person-circle",
+    },
   ],
+
   groupLeader: [
-    { to: "/group-leader/dashboard", label: "Papan Pemuka", icon: "bi-speedometer2" },
-    { to: "/group-leader/members", label: "Ahli Kumpulan", icon: "bi-people" },
-    { to: "/group-leader/activities", label: "Aktiviti", icon: "bi-calendar-event" },
-    { to: "/group-leader/attendance", label: "Kehadiran", icon: "bi bi-clipboard-check" },
-    { to: "/group-leader/badges", label: "Lencana & Pencapaian", icon: "bi-award" },
-    { to: "/group-leader/profile", label: "Profil Saya", icon: "bi-person-circle" },
+    {
+      to: "/group-leader/dashboard",
+      label: "Papan Pemuka",
+      icon: "bi-speedometer2",
+    },
+    {
+      to: "/group-leader/members",
+      label: "Ahli Kumpulan",
+      icon: "bi-people",
+    },
+    {
+      to: "/group-leader/activities",
+      label: "Aktiviti",
+      icon: "bi-calendar-event",
+    },
+    {
+      to: "/group-leader/attendance",
+      label: "Kehadiran",
+      icon: "bi-clipboard-check",
+    },
+    {
+      to: "/group-leader/badges",
+      label: "Lencana & Pencapaian",
+      icon: "bi-award",
+    },
+    {
+      to: "/group-leader/profile",
+      label: "Profil Saya",
+      icon: "bi-person-circle",
+    },
   ],
+
   assistantLeader: [
-    { to: "/assistant-leader/dashboard", label: "Papan Pemuka", icon: "bi-speedometer2" },
-    { to: "/assistant-leader/members", label: "Ahli Kumpulan", icon: "bi-people" },
-    { to: "/assistant-leader/activities", label: "Aktiviti", icon: "bi-calendar-event" },
-    { to: "/assistant-leader/profile", label: "Profil Saya", icon: "bi-person-circle" },
+    {
+      to: "/assistant-leader/dashboard",
+      label: "Papan Pemuka",
+      icon: "bi-speedometer2",
+    },
+    {
+      to: "/assistant-leader/members",
+      label: "Ahli Kumpulan",
+      icon: "bi-people",
+    },
+    {
+      to: "/assistant-leader/activities",
+      label: "Aktiviti",
+      icon: "bi-calendar-event",
+    },
+    {
+      to: "/assistant-leader/profile",
+      label: "Profil Saya",
+      icon: "bi-person-circle",
+    },
   ],
 };
 
-const roleInfo: Record<RoleType, { title: string; subtitle: string; badge: string }> = {
-  superadmin: { title: "ePengakap", subtitle: "Super Admin Portal", badge: "Super Admin" },
-  district: { title: "ePengakap", subtitle: "Daerah Portal", badge: "Pesuruhjaya Daerah" },
-  assistantCommissioner: { title: "ePengakap", subtitle: "Penolong Pesuruhjaya", badge: "Penolong Pesuruhjaya" },
-  groupLeader: { title: "ePengakap", subtitle: "Pemimpin Kumpulan", badge: "Pemimpin Kumpulan" },
-  assistantLeader: { title: "ePengakap", subtitle: "Penolong Pemimpin", badge: "Penolong Pemimpin" },
+const roleInfo: Record<
+  RoleType,
+  {
+    title: string;
+    subtitle: string;
+    badge: string;
+  }
+> = {
+  superadmin: {
+    title: "ePengakap",
+    subtitle: "Super Admin Portal",
+    badge: "Super Admin",
+  },
+  district: {
+    title: "ePengakap",
+    subtitle: "Daerah Portal",
+    badge: "Pesuruhjaya Daerah",
+  },
+  assistantCommissioner: {
+    title: "ePengakap",
+    subtitle: "Penolong Pesuruhjaya",
+    badge: "Penolong Pesuruhjaya",
+  },
+  groupLeader: {
+    title: "ePengakap",
+    subtitle: "Pemimpin Kumpulan",
+    badge: "Pemimpin Kumpulan",
+  },
+  assistantLeader: {
+    title: "ePengakap",
+    subtitle: "Penolong Pemimpin",
+    badge: "Penolong Pemimpin",
+  },
 };
+
+function isActiveRoute(currentPath: string, itemPath: string) {
+  if (currentPath === itemPath) return true;
+
+  const dashboardPaths = [
+    "/superadmin/dashboard",
+    "/district/dashboard",
+    "/assistant-commissioner/dashboard",
+    "/group-leader/dashboard",
+    "/assistant-leader/dashboard",
+  ];
+
+  if (dashboardPaths.includes(itemPath)) {
+    return false;
+  }
+
+  return currentPath.startsWith(itemPath);
+}
 
 export default function Sidebar({
   role = "district",
@@ -75,31 +244,43 @@ export default function Sidebar({
   onToggle?: () => void;
 }) {
   const location = useLocation();
-  const menu = menus[role];
-  const info = roleInfo[role];
+  const navigate = useNavigate();
+
+  const menu = menus[role] || menus.district;
+  const info = roleInfo[role] || roleInfo.district;
+
+  function handleLogout() {
+    localStorage.removeItem("user");
+    localStorage.removeItem("auth_user");
+    navigate("/login", { replace: true });
+  }
 
   return (
     <aside className="sidebar-panel text-white h-100 p-3 w-100 position-relative overflow-auto">
-      <div className={`d-flex align-items-center mb-4 ${collapsed ? "justify-content-center" : "justify-content-between"}`}>
+      <div
+        className={`d-flex align-items-center mb-4 ${
+          collapsed ? "justify-content-center" : "justify-content-between"
+        }`}
+      >
         <div className="d-flex align-items-center gap-2">
-        <div
-          className="bg-white rounded-circle d-flex align-items-center justify-content-center"
-          style={{
-            width: 54,
-            height: 54,
-            overflow: "hidden",
-          }}
-        >
-          <img
-            src={pengakapLogo}
-            alt="Pengakap Malaysia"
+          <div
+            className="bg-white rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
             style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain",
+              width: 54,
+              height: 54,
+              overflow: "hidden",
             }}
-          />
-        </div>
+          >
+            <img
+              src={pengakapLogo}
+              alt="Pengakap Malaysia"
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+              }}
+            />
+          </div>
 
           {!collapsed && (
             <div>
@@ -110,7 +291,12 @@ export default function Sidebar({
         </div>
 
         {!collapsed && (
-          <button className="btn btn-sm btn-outline-light border-0" onClick={onToggle} title="Collapse sidebar">
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-light border-0"
+            onClick={onToggle}
+            title="Collapse sidebar"
+          >
             <i className="bi bi-layout-sidebar-inset"></i>
           </button>
         )}
@@ -118,6 +304,7 @@ export default function Sidebar({
 
       {collapsed && (
         <button
+          type="button"
           className="btn btn-sm btn-outline-light border-0 w-100 mb-3"
           onClick={onToggle}
           title="Open sidebar"
@@ -133,46 +320,48 @@ export default function Sidebar({
       )}
 
       {!collapsed && (
-        <div className="small text-white-50 text-uppercase mb-2">Menu Utama</div>
+        <div className="small text-white-50 text-uppercase mb-2">
+          Menu Utama
+        </div>
       )}
 
-      {menu.map((item) => {
-        const active =
-          location.pathname === item.to ||
-          (item.to !== "/superadmin" &&
-            item.to !== "/district/dashboard" &&
-            item.to !== "/assistant-commissioner/dashboard" &&
-            item.to !== "/group-leader/dashboard" &&
-            item.to !== "/assistant-leader/dashboard" &&
-            location.pathname.startsWith(item.to));
+      <nav>
+        {menu.map((item) => {
+          const active = isActiveRoute(location.pathname, item.to);
 
-        return (
-          <Link
-            key={item.to}
-            to={item.to}
-            title={collapsed ? item.label : undefined}
-            className={`sidebar-link d-flex align-items-center text-decoration-none rounded px-3 py-2 mb-1 ${
-              collapsed ? "justify-content-center" : "gap-2"
-            } ${active ? "bg-success text-white fw-semibold" : "text-white-50"}`}
-          >
-            <i className={`bi ${item.icon}`}></i>
-            {!collapsed && <span>{item.label}</span>}
-          </Link>
-        );
-      })}
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              title={collapsed ? item.label : undefined}
+              className={`sidebar-link d-flex align-items-center text-decoration-none rounded px-3 py-2 mb-1 ${
+                collapsed ? "justify-content-center" : "gap-2"
+              } ${
+                active
+                  ? "bg-success text-white fw-semibold"
+                  : "text-white-50"
+              }`}
+            >
+              <i className={`bi ${item.icon}`}></i>
+              {!collapsed && <span>{item.label}</span>}
+            </Link>
+          );
+        })}
+      </nav>
 
       <hr className="border-secondary" />
 
-      <Link
-        to="/login"
-        onClick={() => {
-          localStorage.removeItem("user");
-        }}
-        className="text-white-50 text-decoration-none d-flex align-items-center gap-2"
+      <button
+        type="button"
+        onClick={handleLogout}
+        className={`btn btn-link text-white-50 text-decoration-none d-flex align-items-center p-0 ${
+          collapsed ? "justify-content-center w-100" : "gap-2"
+        }`}
+        title={collapsed ? "Log Keluar" : undefined}
       >
         <i className="bi bi-box-arrow-right"></i>
-        {!collapsed && "Log Keluar"}
-      </Link>
+        {!collapsed && <span>Log Keluar</span>}
+      </button>
     </aside>
   );
 }

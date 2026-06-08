@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Navigate, Routes, Route } from "react-router-dom";
 
 import LandingPage from "../pages/public/LandingPage";
 import LoginPage from "../pages/public/LoginPage";
@@ -45,6 +45,27 @@ import AssistantProfilePage from "../pages/assistantLeader/AssistantProfilePage"
 import ProtectedRoute from "./ProtectedRoute";
 import UnauthorizedPage from "../pages/shared/UnauthorizedPage";
 
+const SUPER_ADMIN = ["Super Admin"];
+
+const DISTRICT_COMMISSIONER = ["Pesuruhjaya Daerah"];
+
+const ASSISTANT_COMMISSIONER = [
+  "Penolong Pesuruhjaya",
+  "Penolong Pesuruhjaya Daerah",
+];
+
+const GROUP_LEADER = ["Pemimpin Kumpulan"];
+
+const ASSISTANT_LEADER = ["Penolong Pemimpin"];
+
+function protect(allowedRoles: string[], element: React.ReactNode) {
+  return (
+    <ProtectedRoute allowedRoles={allowedRoles}>
+      {element}
+    </ProtectedRoute>
+  );
+}
+
 export default function AppRoutes() {
   return (
     <Routes>
@@ -57,354 +78,217 @@ export default function AppRoutes() {
       {/* Super Admin */}
       <Route
         path="/superadmin"
-        element={
-          <ProtectedRoute allowedRoles={["Super Admin"]}>
-            <SuperAdminDashboard />
-          </ProtectedRoute>
-        }
+        element={<Navigate to="/superadmin/dashboard" replace />}
       />
 
       <Route
         path="/superadmin/dashboard"
-        element={
-          <ProtectedRoute allowedRoles={["Super Admin"]}>
-            <SuperAdminDashboard />
-          </ProtectedRoute>
-        }
+        element={protect(SUPER_ADMIN, <SuperAdminDashboard />)}
       />
 
       <Route
         path="/superadmin/applications"
-        element={
-          <ProtectedRoute allowedRoles={["Super Admin"]}>
-            <DistrictApplicationsPage />
-          </ProtectedRoute>
-        }
+        element={protect(SUPER_ADMIN, <DistrictApplicationsPage />)}
       />
 
       <Route
         path="/superadmin/applications/:id"
-        element={
-          <ProtectedRoute allowedRoles={["Super Admin"]}>
-            <ApplicationDetailPage />
-          </ProtectedRoute>
-        }
+        element={protect(SUPER_ADMIN, <ApplicationDetailPage />)}
       />
 
       <Route
         path="/superadmin/districts"
-        element={
-          <ProtectedRoute allowedRoles={["Super Admin"]}>
-            <DistrictManagementPage />
-          </ProtectedRoute>
-        }
+        element={protect(SUPER_ADMIN, <DistrictManagementPage />)}
       />
 
       <Route
         path="/superadmin/districts/:id"
-        element={
-          <ProtectedRoute allowedRoles={["Super Admin"]}>
-            <DistrictDetailPage />
-          </ProtectedRoute>
-        }
+        element={protect(SUPER_ADMIN, <DistrictDetailPage />)}
       />
 
       <Route
         path="/superadmin/users"
-        element={
-          <ProtectedRoute allowedRoles={["Super Admin"]}>
-            <SystemUsersPage />
-          </ProtectedRoute>
-        }
+        element={protect(SUPER_ADMIN, <SystemUsersPage />)}
       />
 
       <Route
         path="/superadmin/master-data"
-        element={
-          <ProtectedRoute allowedRoles={["Super Admin"]}>
-            <MasterDataPage />
-          </ProtectedRoute>
-        }
+        element={protect(SUPER_ADMIN, <MasterDataPage />)}
       />
 
       <Route
         path="/superadmin/audit"
-        element={
-          <ProtectedRoute allowedRoles={["Super Admin"]}>
-            <SystemAuditLogPage />
-          </ProtectedRoute>
-        }
+        element={protect(SUPER_ADMIN, <SystemAuditLogPage />)}
       />
 
       <Route
         path="/superadmin/audit-log"
-        element={
-          <ProtectedRoute allowedRoles={["Super Admin"]}>
-            <SystemAuditLogPage />
-          </ProtectedRoute>
-        }
+        element={protect(SUPER_ADMIN, <SystemAuditLogPage />)}
       />
 
       {/* District Commissioner */}
       <Route
+        path="/district"
+        element={<Navigate to="/district/dashboard" replace />}
+      />
+
+      <Route
         path="/district/dashboard"
-        element={
-          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
-            <DistrictDashboard />
-          </ProtectedRoute>
-        }
+        element={protect(DISTRICT_COMMISSIONER, <DistrictDashboard />)}
       />
 
       <Route
         path="/district/users"
-        element={
-          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
-            <UserManagementPage />
-          </ProtectedRoute>
-        }
+        element={protect(DISTRICT_COMMISSIONER, <UserManagementPage />)}
       />
 
       <Route
         path="/district/groups"
-        element={
-          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
-            <GroupManagementPage />
-          </ProtectedRoute>
-        }
+        element={protect(DISTRICT_COMMISSIONER, <GroupManagementPage />)}
       />
 
       <Route
         path="/district/members"
-        element={
-          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
-            <MemberManagementPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/district/settings"
-        element={
-          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
-            <DistrictSettingsPage />
-          </ProtectedRoute>
-        }
+        element={protect(DISTRICT_COMMISSIONER, <MemberManagementPage />)}
       />
 
       <Route
         path="/district/activities"
-        element={
-          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
-            <DistrictActivitiesPage />
-          </ProtectedRoute>
-        }
+        element={protect(DISTRICT_COMMISSIONER, <DistrictActivitiesPage />)}
       />
 
-      <Route 
-      path="/district/profile" 
-      element={
-        <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
-          <DistrictProfilePage />
-        </ProtectedRoute>
-      } />
+      <Route
+        path="/district/settings"
+        element={protect(DISTRICT_COMMISSIONER, <DistrictSettingsPage />)}
+      />
+
+      <Route
+        path="/district/profile"
+        element={protect(DISTRICT_COMMISSIONER, <DistrictProfilePage />)}
+      />
 
       <Route
         path="/district/audit"
-        element={
-          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
-            <AuditLogPage />
-          </ProtectedRoute>
-        }
+        element={protect(DISTRICT_COMMISSIONER, <AuditLogPage />)}
       />
 
       <Route
         path="/district/audit-log"
-        element={
-          <ProtectedRoute allowedRoles={["Pesuruhjaya Daerah"]}>
-            <AuditLogPage />
-          </ProtectedRoute>
-        }
+        element={protect(DISTRICT_COMMISSIONER, <AuditLogPage />)}
       />
 
       {/* Assistant Commissioner */}
       <Route
+        path="/assistant-commissioner"
+        element={<Navigate to="/assistant-commissioner/dashboard" replace />}
+      />
+
+      <Route
         path="/assistant-commissioner/dashboard"
-        element={
-          <ProtectedRoute
-            allowedRoles={[
-              "Penolong Pesuruhjaya",
-              "Penolong Pesuruhjaya Daerah",
-            ]}
-          >
-            <AssistantCommissionerDashboard />
-          </ProtectedRoute>
-        }
+        element={protect(
+          ASSISTANT_COMMISSIONER,
+          <AssistantCommissionerDashboard />
+        )}
       />
 
       <Route
         path="/assistant-commissioner/members"
-        element={
-          <ProtectedRoute
-            allowedRoles={[
-              "Penolong Pesuruhjaya",
-              "Penolong Pesuruhjaya Daerah",
-            ]}
-          >
-            <ACMemberManagementPage />
-          </ProtectedRoute>
-        }
+        element={protect(ASSISTANT_COMMISSIONER, <ACMemberManagementPage />)}
       />
 
       <Route
         path="/assistant-commissioner/groups"
-        element={
-          <ProtectedRoute
-            allowedRoles={[
-              "Penolong Pesuruhjaya",
-              "Penolong Pesuruhjaya Daerah",
-            ]}
-          >
-            <ACGroupManagementPage />
-          </ProtectedRoute>
-        }
+        element={protect(ASSISTANT_COMMISSIONER, <ACGroupManagementPage />)}
       />
 
       <Route
         path="/assistant-commissioner/activities"
-        element={
-          <ProtectedRoute
-            allowedRoles={[
-              "Penolong Pesuruhjaya",
-              "Penolong Pesuruhjaya Daerah",
-            ]}
-          >
-            <AssistantCommissionerActivitiesPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/assistant-commissioner/profile"
-        element={
-          <ProtectedRoute
-            allowedRoles={[
-              "Penolong Pesuruhjaya",
-              "Penolong Pesuruhjaya Daerah",
-            ]}
-          >
-            <AssistantCommissionerProfilePage />
-          </ProtectedRoute>
-        }
+        element={protect(
+          ASSISTANT_COMMISSIONER,
+          <AssistantCommissionerActivitiesPage />
+        )}
       />
 
       <Route
         path="/assistant-commissioner/reports"
-        element={
-          <ProtectedRoute
-            allowedRoles={[
-              "Penolong Pesuruhjaya",
-              "Penolong Pesuruhjaya Daerah",
-            ]}
-          >
-            <ReportsPage />
-          </ProtectedRoute>
-        }
+        element={protect(ASSISTANT_COMMISSIONER, <ReportsPage />)}
+      />
+
+      <Route
+        path="/assistant-commissioner/profile"
+        element={protect(
+          ASSISTANT_COMMISSIONER,
+          <AssistantCommissionerProfilePage />
+        )}
       />
 
       {/* Group Leader */}
       <Route
+        path="/group-leader"
+        element={<Navigate to="/group-leader/dashboard" replace />}
+      />
+
+      <Route
         path="/group-leader/dashboard"
-        element={
-          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
-            <GroupLeaderDashboard />
-          </ProtectedRoute>
-        }
+        element={protect(GROUP_LEADER, <GroupLeaderDashboard />)}
       />
 
       <Route
         path="/group-leader/members"
-        element={
-          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
-            <GroupMembersPage />
-          </ProtectedRoute>
-        }
+        element={protect(GROUP_LEADER, <GroupMembersPage />)}
       />
 
       <Route
         path="/group-leader/activities"
-        element={
-          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
-            <ActivitiesPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/group-leader/profile"
-        element={
-          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
-            <ProfilePage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/group-leader/badges"
-        element={
-          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
-            <BadgesPage />
-          </ProtectedRoute>
-        }
+        element={protect(GROUP_LEADER, <ActivitiesPage />)}
       />
 
       <Route
         path="/group-leader/attendance"
-        element={
-          <ProtectedRoute allowedRoles={["Pemimpin Kumpulan"]}>
-            <AttendancePage />
-          </ProtectedRoute>
-        }
+        element={protect(GROUP_LEADER, <AttendancePage />)}
+      />
+
+      <Route
+        path="/group-leader/badges"
+        element={protect(GROUP_LEADER, <BadgesPage />)}
+      />
+
+      <Route
+        path="/group-leader/profile"
+        element={protect(GROUP_LEADER, <ProfilePage />)}
       />
 
       {/* Assistant Leader */}
       <Route
+        path="/assistant-leader"
+        element={<Navigate to="/assistant-leader/dashboard" replace />}
+      />
+
+      <Route
         path="/assistant-leader/dashboard"
-        element={
-          <ProtectedRoute allowedRoles={["Penolong Pemimpin"]}>
-            <AssistantLeaderDashboard />
-          </ProtectedRoute>
-        }
+        element={protect(ASSISTANT_LEADER, <AssistantLeaderDashboard />)}
       />
 
       <Route
         path="/assistant-leader/members"
-        element={
-          <ProtectedRoute allowedRoles={["Penolong Pemimpin"]}>
-            <AssistantMembersPage />
-          </ProtectedRoute>
-        }
+        element={protect(ASSISTANT_LEADER, <AssistantMembersPage />)}
       />
 
       <Route
         path="/assistant-leader/activities"
-        element={
-          <ProtectedRoute allowedRoles={["Penolong Pemimpin"]}>
-            <AssistantActivitiesPage />
-          </ProtectedRoute>
-        }
+        element={protect(ASSISTANT_LEADER, <AssistantActivitiesPage />)}
       />
 
       <Route
         path="/assistant-leader/profile"
-        element={
-          <ProtectedRoute allowedRoles={["Penolong Pemimpin"]}>
-            <AssistantProfilePage />
-          </ProtectedRoute>
-        }
+        element={protect(ASSISTANT_LEADER, <AssistantProfilePage />)}
       />
 
       {/* Shared */}
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
+
+      {/* Fallback */}
+      <Route path="*" element={<UnauthorizedPage />} />
     </Routes>
   );
 }

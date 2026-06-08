@@ -15,6 +15,7 @@ type SystemUser = {
   group_name?: string | null;
   status: string | null;
   phone?: string | null;
+  profile_image_url?: string | null;
 };
 
 type DistrictEnvironment = {
@@ -30,7 +31,25 @@ function normalizeEmail(value: string) {
 }
 
 function normalizeRole(value?: string | null) {
-  return String(value || "").trim();
+  const role = String(value || "").trim();
+
+  if (role === "District") return "Pesuruhjaya Daerah";
+  if (role === "Assistant Commissioner") return "Penolong Pesuruhjaya Daerah";
+  if (role === "Penolong Pesuruhjaya") return "Penolong Pesuruhjaya Daerah";
+  if (role === "Group Leader") return "Pemimpin Kumpulan";
+  if (role === "Assistant Leader") return "Penolong Pemimpin";
+
+  return role;
+}
+
+function normalizeStatus(value?: string | null) {
+  const status = String(value || "").trim().toLowerCase();
+
+  if (status === "aktif" || status === "active") return "Aktif";
+  if (status === "tidak aktif" || status === "inactive") return "Tidak Aktif";
+  if (status === "pending" || status === "menunggu") return "Pending";
+
+  return value || "";
 }
 
 function isDistrictRole(role?: string | null) {
@@ -39,7 +58,6 @@ function isDistrictRole(role?: string | null) {
   return (
     normalized === "Pesuruhjaya Daerah" ||
     normalized === "Penolong Pesuruhjaya Daerah" ||
-    normalized === "Penolong Pesuruhjaya" ||
     normalized === "Pemimpin Kumpulan" ||
     normalized === "Penolong Pemimpin"
   );
@@ -56,7 +74,6 @@ function getDashboardPath(role?: string | null) {
       return "/district/dashboard";
 
     case "Penolong Pesuruhjaya Daerah":
-    case "Penolong Pesuruhjaya":
       return "/assistant-commissioner/dashboard";
 
     case "Pemimpin Kumpulan":
@@ -66,7 +83,7 @@ function getDashboardPath(role?: string | null) {
       return "/assistant-leader/dashboard";
 
     default:
-      return "/";
+      return "/login";
   }
 }
 
@@ -83,10 +100,14 @@ export default function LoginPage() {
       return user.district_environment_id;
     }
 
-    if (user.role === "Pesuruhjaya Daerah") {
+    const userRole = normalizeRole(user.role);
+
+    if (userRole === "Pesuruhjaya Daerah") {
       const { data: environmentByCommissioner, error } = await supabase
         .from("district_environments")
-        .select("id, district_commissioner_user_id, district_id, status, deleted_at")
+        .select(
+          "id, district_commissioner_user_id, district_id, status, deleted_at"
+        )
         .eq("district_commissioner_user_id", user.id)
         .is("deleted_at", null)
         .maybeSingle<DistrictEnvironment>();
@@ -103,6 +124,15 @@ export default function LoginPage() {
     return null;
   }
 
+  async function updateLastLogin(userId: string) {
+    await supabase
+      .from("system_users")
+      .update({
+        last_login_at: new Date().toISOString(),
+      })
+      .eq("id", userId);
+  }
+
   async function handleLogin() {
     const cleanEmail = normalizeEmail(email);
     const cleanPassword = password.trim();
@@ -115,6 +145,9 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      localStorage.removeItem("user");
+      localStorage.removeItem("auth_user");
+
       const { data, error } = await supabase
         .from("system_users")
         .select("*")
@@ -130,9 +163,17 @@ export default function LoginPage() {
         return;
       }
 
+      const userRole = normalizeRole(data.role);
+      const userStatus = normalizeStatus(data.status);
+
+      if (userStatus !== "Aktif") {
+        alert("Akaun belum aktif. Sila hubungi pentadbir sistem.");
+        return;
+      }
+
       const districtEnvironmentId = await findDistrictEnvironment(data);
 
-      if (isDistrictRole(data.role) && !districtEnvironmentId) {
+      if (isDistrictRole(userRole) && !districtEnvironmentId) {
         alert(
           "Akaun ini belum dihubungkan dengan district environment. Sila hubungi Super Admin."
         );
@@ -141,22 +182,27 @@ export default function LoginPage() {
 
       const loginUser = {
         id: data.id,
-        full_name: data.full_name,
-        name: data.full_name,
-        email: data.email,
-        role: data.role,
-        district: data.district,
+        full_name: data.full_name || "",
+        name: data.full_name || "",
+        email: data.email || "",
+        role: userRole,
+        district: data.district || null,
         district_environment_id: districtEnvironmentId,
         group_id: data.group_id || null,
         group_name: data.group_name || null,
-        status: data.status,
+        status: userStatus,
         phone: data.phone || null,
+        profile_image_url: data.profile_image_url || null,
       };
 
       localStorage.setItem("user", JSON.stringify(loginUser));
       localStorage.setItem("auth_user", JSON.stringify(loginUser));
 
-      navigate(getDashboardPath(data.role));
+      await updateLastLogin(data.id);
+
+      window.dispatchEvent(new Event("userProfileUpdated"));
+
+      navigate(getDashboardPath(userRole), { replace: true });
     } catch (error: any) {
       console.error("Login error:", error);
       alert(error?.message || "Gagal log masuk.");
@@ -229,7 +275,7 @@ export default function LoginPage() {
               <div className="fw-bold">ePengakap Daerah</div>
             </div>
 
-            <div className="card border-0 shadow-sm">
+            <div className="card border-0 shadow-sm rounded-4">
               <div className="card-body p-4">
                 <h1 className="h3 fw-bold">Selamat datang kembali</h1>
                 <p className="text-muted small">
@@ -264,11 +310,14 @@ export default function LoginPage() {
                   <div className="mb-3">
                     <div className="d-flex justify-content-between">
                       <label className="form-label">Kata Laluan</label>
+
                       <button
                         type="button"
                         className="btn btn-link p-0 small text-success text-decoration-none"
                         onClick={() =>
-                          alert("Fungsi lupa kata laluan akan dibangunkan kemudian.")
+                          alert(
+                            "Fungsi lupa kata laluan akan dibangunkan kemudian."
+                          )
                         }
                       >
                         Lupa kata laluan?
@@ -339,6 +388,8 @@ export default function LoginPage() {
                       Super Admin: superadmin@epengakap.my / 123456
                       <br />
                       Pesuruhjaya: pesuruhjaya@petaling.gov.my / 123456
+                      <br />
+                      Penolong Pesuruhjaya: penolong@petaling.gov.my / 123456
                     </div>
                   </div>
                 </form>
