@@ -22,10 +22,12 @@ type Activity = {
   activity_name: string | null;
   activity_date: string | null;
   location?: string | null;
+  group_id?: string | null;
   group_name?: string | null;
   district?: string | null;
   district_environment_id?: string | null;
   status?: string | null;
+  deleted_at?: string | null;
 };
 
 type AttendanceRecord = {
@@ -253,7 +255,7 @@ export default function AttendancePage() {
   }
 
   async function fetchActivities() {
-    if (!groupName && !district) {
+    if (!groupId && !groupName) {
       setActivities([]);
       return;
     }
@@ -261,12 +263,13 @@ export default function AttendancePage() {
     let query = supabase
       .from("activities")
       .select("*")
+      .is("deleted_at", null)
       .order("activity_date", { ascending: false });
 
-    if (groupName) {
+    if (groupId) {
+      query = query.eq("group_id", groupId);
+    } else {
       query = query.eq("group_name", groupName);
-    } else if (district) {
-      query = query.eq("district", district);
     }
 
     if (districtEnvironmentId) {
@@ -334,11 +337,20 @@ export default function AttendancePage() {
       initialNotes[member.id] = "";
     });
 
-    const { data, error } = await supabase
+    let attendanceQuery = supabase
       .from("attendance")
       .select("*")
       .eq("activity_id", activityId)
+      .eq("district_environment_id", districtEnvironmentId)
       .is("deleted_at", null);
+
+    if (groupId) {
+      attendanceQuery = attendanceQuery.eq("group_id", groupId);
+    } else {
+      attendanceQuery = attendanceQuery.eq("group_name", groupName);
+    }
+
+    const { data, error } = await attendanceQuery;
 
     if (error) {
       alert(error.message);
@@ -417,12 +429,21 @@ export default function AttendancePage() {
     // Ambil rekod sedia ada dulu supaya save sentiasa update row yang sama.
     // Ini lebih reliable daripada upsert onConflict sebab sesetengah DB schema
     // ada partial unique index yang Supabase REST susah match.
-    const { data: existingRows, error: existingError } = await supabase
+    let existingQuery = supabase
       .from("attendance")
       .select("id, member_id")
       .eq("activity_id", selectedActivityId)
+      .eq("district_environment_id", districtEnvironmentId)
       .in("member_id", memberIds)
       .is("deleted_at", null);
+
+    if (groupId) {
+      existingQuery = existingQuery.eq("group_id", groupId);
+    } else {
+      existingQuery = existingQuery.eq("group_name", groupName);
+    }
+
+    const { data: existingRows, error: existingError } = await existingQuery;
 
     if (existingError) {
       alert(existingError.message);
@@ -458,7 +479,20 @@ export default function AttendancePage() {
       const existingId = existingMap.get(member.id);
 
       if (existingId) {
-        return supabase.from("attendance").update(payload).eq("id", existingId);
+        let updateAttendanceQuery = supabase
+          .from("attendance")
+          .update(payload)
+          .eq("id", existingId)
+          .eq("district_environment_id", districtEnvironmentId)
+          .is("deleted_at", null);
+
+        if (groupId) {
+          updateAttendanceQuery = updateAttendanceQuery.eq("group_id", groupId);
+        } else {
+          updateAttendanceQuery = updateAttendanceQuery.eq("group_name", groupName);
+        }
+      
+        return updateAttendanceQuery;
       }
 
       return supabase
@@ -746,24 +780,35 @@ export default function AttendancePage() {
         </div>
 
         <div className="d-flex gap-2">
-          <button
-            className="btn btn-outline-success"
-            onClick={exportCSV}
-            disabled={!selectedActivityId || members.length === 0}
-          >
-            <i className="bi bi-file-earmark-spreadsheet me-1"></i>
-            Export CSV
-          </button>
-
-          <button
-            className="btn btn-outline-danger"
-            onClick={exportPDF}
-            disabled={!selectedActivityId || members.length === 0}
-          >
-            <i className="bi bi-file-earmark-pdf me-1"></i>
-            Export PDF
-          </button>
-
+          <div className="dropdown">
+            <button
+              className="btn btn-outline-secondary dropdown-toggle"
+              type="button"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+              disabled={!selectedActivityId || members.length === 0}
+            >
+              <i className="bi bi-download me-1"></i>
+              Export
+            </button>
+          
+            <ul className="dropdown-menu dropdown-menu-end">
+              <li>
+                <button className="dropdown-item" onClick={exportCSV}>
+                  <i className="bi bi-file-earmark-spreadsheet me-2 text-success"></i>
+                  Export CSV
+                </button>
+              </li>
+          
+              <li>
+                <button className="dropdown-item" onClick={exportPDF}>
+                  <i className="bi bi-file-earmark-pdf me-2 text-danger"></i>
+                  Export PDF
+                </button>
+              </li>
+            </ul>
+          </div>
+          
           <button
             className="btn btn-success"
             onClick={saveAttendance}

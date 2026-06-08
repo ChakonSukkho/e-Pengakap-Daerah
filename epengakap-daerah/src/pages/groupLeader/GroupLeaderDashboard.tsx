@@ -34,6 +34,7 @@ type Activity = {
   district?: string | null;
   district_environment_id?: string | null;
   created_at?: string | null;
+  deleted_at?: string | null;
 };
 
 type ScoutGroup = {
@@ -191,7 +192,11 @@ export default function GroupLeaderDashboard() {
       return;
     }
 
-    let query = supabase.from("groups").select("*").limit(1);
+    let query = supabase
+      .from("groups")
+      .select("*")
+      .is("deleted_at", null)
+      .limit(1);
 
     if (groupId) {
       query = query.eq("id", groupId);
@@ -256,7 +261,10 @@ export default function GroupLeaderDashboard() {
       return;
     }
 
-    let query = supabase.from("activities").select("*");
+    let query = supabase
+      .from("activities")
+      .select("*")
+      .is("deleted_at", null);
 
     /**
      * Activities dalam sistem kau banyak guna group_name.

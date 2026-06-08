@@ -276,7 +276,28 @@ export default function BadgesPage() {
     const [{ data: membersData, error: membersError }, { data: badgesData, error: badgesError }] =
       await Promise.all([
         memberIds.length > 0
-          ? supabase.from("members").select("*").in("id", memberIds)
+          ? (() => {
+              let memberQuery = supabase
+                .from("members")
+                .select("*")
+                .in("id", memberIds)
+                .is("deleted_at", null);
+          
+              if (groupId) {
+                memberQuery = memberQuery.eq("group_id", groupId);
+              } else {
+                memberQuery = memberQuery.eq("group_name", groupName);
+              }
+            
+              if (districtEnvironmentId) {
+                memberQuery = memberQuery.eq(
+                  "district_environment_id",
+                  districtEnvironmentId
+                );
+              }
+            
+              return memberQuery;
+            })()
           : Promise.resolve({ data: [], error: null } as any),
         badgeIds.length > 0
           ? supabase.from("badge_types").select("*").in("id", badgeIds)
@@ -432,6 +453,10 @@ export default function BadgesPage() {
       query = query.eq("group_name", groupName);
     }
 
+    if (districtEnvironmentId) {
+      query = query.eq("district_environment_id", districtEnvironmentId);
+    }
+
     const { data, error } = await query;
 
     if (error) {
@@ -460,6 +485,34 @@ export default function BadgesPage() {
 
     const selectedMember = members.find((member) => member.id === form.member_id);
     const selectedBadge = badgeTypes.find((badge) => badge.id === form.badge_id);
+
+    if (
+      selectedMember &&
+      districtEnvironmentId &&
+      selectedMember.district_environment_id !== districtEnvironmentId
+    ) {
+      alert("Ahli ini bukan dalam daerah anda.");
+      return;
+    }
+
+    if (
+      selectedMember &&
+      groupId &&
+      selectedMember.group_id !== groupId
+    ) {
+      alert("Ahli ini bukan dalam kumpulan anda.");
+      return;
+    }
+
+    if (
+      selectedMember &&
+      !groupId &&
+      groupName &&
+      selectedMember.group_name !== groupName
+    ) {
+      alert("Ahli ini bukan dalam kumpulan anda.");
+      return;
+    }
 
     if (!selectedMember) {
       alert("Ahli tidak dijumpai.");
@@ -534,7 +587,7 @@ export default function BadgesPage() {
       ? `${oldNotes}${oldNotes ? "\n" : ""}Dibatalkan: ${reason}`
       : oldNotes;
 
-    const { error } = await supabase
+    let cancelQuery = supabase
       .from("member_badges")
       .update({
         status: "Dibatalkan",
@@ -542,7 +595,17 @@ export default function BadgesPage() {
         notes: updatedNotes || null,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", cancelTarget.id);
+      .eq("id", cancelTarget.id)
+      .eq("district_environment_id", districtEnvironmentId)
+      .is("deleted_at", null);
+    
+    if (groupId) {
+      cancelQuery = cancelQuery.eq("group_id", groupId);
+    } else {
+      cancelQuery = cancelQuery.eq("group_name", groupName);
+    }
+
+    const { error } = await cancelQuery;
 
     if (error) {
       alert(error.message);
@@ -722,17 +785,38 @@ export default function BadgesPage() {
         </div>
 
         <div className="d-flex gap-2">
-          <button className="btn btn-outline-success" onClick={exportAwardsCSV}>
-            <i className="bi bi-file-earmark-spreadsheet me-1"></i>
-            Export CSV
-          </button>
-
-          <button className="btn btn-outline-danger" onClick={exportAwardsPDF}>
-            <i className="bi bi-file-earmark-pdf me-1"></i>
-            Export PDF
-          </button>
-
-          <button className="btn btn-success" onClick={() => setShowAwardModal(true)}>
+          <div className="dropdown">
+            <button
+              className="btn btn-outline-secondary dropdown-toggle"
+              type="button"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+            >
+              <i className="bi bi-download me-1"></i>
+              Export
+            </button>
+          
+            <ul className="dropdown-menu dropdown-menu-end">
+              <li>
+                <button className="dropdown-item" onClick={exportAwardsCSV}>
+                  <i className="bi bi-file-earmark-spreadsheet me-2 text-success"></i>
+                  Export CSV
+                </button>
+              </li>
+          
+              <li>
+                <button className="dropdown-item" onClick={exportAwardsPDF}>
+                  <i className="bi bi-file-earmark-pdf me-2 text-danger"></i>
+                  Export PDF
+                </button>
+              </li>
+            </ul>
+          </div>
+          
+          <button
+            className="btn btn-success"
+            onClick={() => setShowAwardModal(true)}
+          >
             <i className="bi bi-award me-1"></i>
             Anugerah Lencana
           </button>

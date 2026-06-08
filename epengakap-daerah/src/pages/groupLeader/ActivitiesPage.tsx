@@ -8,12 +8,14 @@ type Activity = {
   activity_date: string | null;
   location: string | null;
   description: string | null;
+  group_id?: string | null;
   group_name: string | null;
   district: string | null;
   district_environment_id: string | null;
   status: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  deleted_at?: string | null;
 };
 
 type ActivityForm = {
@@ -137,9 +139,11 @@ async function addAuditLog(
 export default function ActivitiesPage() {
   const currentUser = useMemo(() => getCurrentUser(), []);
 
+  const groupId = currentUser.group_id || "";
   const groupName = currentUser.group_name || "";
   const district = currentUser.district || "";
   const districtEnvironmentId = currentUser.district_environment_id || "";
+
 
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -173,7 +177,7 @@ export default function ActivitiesPage() {
   async function fetchActivities() {
     setLoading(true);
 
-    if (!groupName) {
+    if (!groupId && !groupName) {
       setActivities([]);
       setLoading(false);
       return;
@@ -184,6 +188,12 @@ export default function ActivitiesPage() {
       .select("*")
       .eq("group_name", groupName)
       .order("activity_date", { ascending: true });
+
+    if (groupId) {
+      query = query.eq("group_id", groupId);
+    }else {
+      query = query.eq("group_name", groupName);
+    }
 
     if (districtEnvironmentId) {
       query = query.eq("district_environment_id", districtEnvironmentId);
@@ -329,7 +339,7 @@ export default function ActivitiesPage() {
       return false;
     }
 
-    if (!groupName) {
+    if (!groupId && !groupName) {
       alert("Kumpulan tidak dijumpai. Sila semak akaun Pemimpin Kumpulan.");
       return false;
     }
@@ -347,6 +357,7 @@ export default function ActivitiesPage() {
       activity_date: form.activity_date,
       location: form.location.trim(),
       description: form.description.trim() || null,
+      group_id: groupId || null,
       group_name: groupName,
       district: district || null,
       district_environment_id: districtEnvironmentId || null,
@@ -355,10 +366,20 @@ export default function ActivitiesPage() {
     };
 
     if (editingActivity) {
-      const { error } = await supabase
+      let updateQuery = supabase
         .from("activities")
         .update(payload)
-        .eq("id", editingActivity.id);
+        .eq("id", editingActivity.id)
+        .eq("district_environment_id", districtEnvironmentId)
+        .is("deleted_at", null);
+
+      if (groupId) {
+        updateQuery = updateQuery.eq("group_id", groupId);
+      } else {
+        updateQuery = updateQuery.eq("group_name", groupName);
+      }
+
+      const { error } = await updateQuery;
 
       if (error) {
         alert(error.message);
@@ -405,13 +426,23 @@ export default function ActivitiesPage() {
 
     setSaving(true);
 
-    const { error } = await supabase
+    let cancelQuery = supabase
       .from("activities")
       .update({
         status: "Dibatalkan",
         updated_at: new Date().toISOString(),
       })
-      .eq("id", deleteTarget.id);
+      .eq("id", deleteTarget.id)
+      .eq("district_environment_id", districtEnvironmentId)
+      .is("deleted_at", null);
+    
+    if (groupId) {
+      cancelQuery = cancelQuery.eq("group_id", groupId);
+    } else {
+      cancelQuery = cancelQuery.eq("group_name", groupName);
+    }
+
+    const { error } = await cancelQuery;
 
     if (error) {
       alert(error.message);
@@ -431,7 +462,7 @@ export default function ActivitiesPage() {
     setSaving(false);
   }
 
-  if (!groupName) {
+  if (!groupId && !groupName) {
     return (
       <DashboardLayout role="groupLeader">
         <div className="alert alert-warning rounded-4">

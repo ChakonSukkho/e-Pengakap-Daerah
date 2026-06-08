@@ -735,10 +735,20 @@ export default function GroupMembersPage() {
     };
 
     if (editingMember) {
-      const { error } = await supabase
+      let updateQuery = supabase
         .from("members")
         .update(payload)
-        .eq("id", editingMember.id);
+        .eq("id", editingMember.id)
+        .eq("district_environment_id", districtEnvironmentId)
+        .is("deleted_at", null);
+
+      if (groupId) {
+        updateQuery = updateQuery.eq("group_id", groupId);
+      } else {
+        updateQuery = updateQuery.eq("group_name", groupName);
+      }
+
+      const { error } = await updateQuery;
 
       if (error) {
         alert(error.message);
@@ -1132,13 +1142,23 @@ export default function GroupMembersPage() {
 
     setSaving(true);
 
-    const { error } = await supabase
+    let deactivateQuery = supabase
       .from("members")
       .update({
         status: "Tidak Aktif",
         updated_at: new Date().toISOString(),
       })
-      .eq("id", deactivateTarget.id);
+      .eq("id", deactivateTarget.id)
+      .eq("district_environment_id", districtEnvironmentId)
+      .is("deleted_at", null);
+    
+    if (groupId) {
+      deactivateQuery = deactivateQuery.eq("group_id", groupId);
+    } else {
+      deactivateQuery = deactivateQuery.eq("group_name", groupName);
+    }
+    
+    const { error } = await deactivateQuery;
 
     if (error) {
       alert(error.message);

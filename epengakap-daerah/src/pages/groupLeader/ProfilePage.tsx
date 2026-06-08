@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabaseClient";
 
@@ -8,13 +8,13 @@ type UserProfile = {
   name?: string | null;
   email: string | null;
   phone?: string | null;
+  profile_image_url?: string | null;
   role: string | null;
   district: string | null;
   district_environment_id?: string | null;
   group_id?: string | null;
   group_name?: string | null;
   status: string | null;
-  password?: string | null;
   notes?: string | null;
 
   tauliah_type?: string | null;
@@ -32,7 +32,7 @@ type ProfileForm = {
   full_name: string;
   email: string;
   phone: string;
-  password: string;
+  profile_image_url: string;
 };
 
 function getCurrentUser() {
@@ -58,14 +58,14 @@ function getInitials(name: string) {
 }
 
 function normalizeRole(role?: string | null) {
-  if (role === "Penolong Pesuruhjaya") return "Penolong Pesuruhjaya Daerah";
-  if (role === "District") return "Pesuruhjaya Daerah";
+  if (role === "Group Leader") return "Pemimpin Kumpulan";
+  if (role === "Assistant Leader") return "Penolong Pemimpin";
   return role || "-";
 }
 
 function normalizeStatus(status?: string | null) {
-  if (status === "Active") return "Aktif";
-  if (status === "Inactive") return "Tidak Aktif";
+  if (status === "Active" || status === "active") return "Aktif";
+  if (status === "Inactive" || status === "inactive") return "Tidak Aktif";
   if (status === "Suspended") return "Digantung";
   return status || "Aktif";
 }
@@ -114,10 +114,6 @@ function isValidMalaysiaPhone(value: string) {
   return digits.length >= 9 && digits.length <= 11;
 }
 
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
 function formatDate(value?: string | null) {
   if (!value) return "-";
 
@@ -148,9 +144,7 @@ async function addAuditLog(action: string, description: string) {
 
     await supabase.from("audit_logs").insert({
       actor_name:
-        currentUser.full_name ||
-        currentUser.name ||
-        "Pemimpin Kumpulan",
+        currentUser.full_name || currentUser.name || "Pemimpin Kumpulan",
       actor_role: currentUser.role || "Pemimpin Kumpulan",
       action,
       module: "Profil Pemimpin",
@@ -167,15 +161,20 @@ async function addAuditLog(action: string, description: string) {
 }
 
 export default function ProfilePage() {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState("");
 
   const [form, setForm] = useState<ProfileForm>({
     full_name: "",
     email: "",
     phone: "",
-    password: "",
+    profile_image_url: "",
   });
 
   useEffect(() => {
@@ -196,7 +195,7 @@ export default function ProfilePage() {
       .from("system_users")
       .select("*")
       .eq("id", currentUser.id)
-      .maybeSingle();
+      .maybeSingle<UserProfile>();
 
     if (error) {
       alert(error.message);
@@ -206,9 +205,10 @@ export default function ProfilePage() {
         full_name: currentUser.full_name || currentUser.name || "",
         email: currentUser.email || "",
         phone: formatMalaysiaPhone(currentUser.phone || ""),
-        password: currentUser.password || "",
+        profile_image_url: currentUser.profile_image_url || "",
       });
 
+      setPreviewUrl(currentUser.profile_image_url || "");
       setLoading(false);
       return;
     }
@@ -221,123 +221,161 @@ export default function ProfilePage() {
       full_name: profile.full_name || profile.name || "",
       email: profile.email || "",
       phone: formatMalaysiaPhone(profile.phone || ""),
-      password: profile.password || "",
+      profile_image_url: profile.profile_image_url || "",
     });
+
+    setPreviewUrl(profile.profile_image_url || "");
 
     localStorage.setItem("user", JSON.stringify(profile));
     localStorage.setItem("auth_user", JSON.stringify(profile));
 
+    window.dispatchEvent(new Event("userProfileUpdated"));
+
     setLoading(false);
   }
 
-function validateForm() {
-  const fullName = form.full_name.trim();
-  const email = form.email.trim();
-  const phone = form.phone.trim();
-  const password = form.password.trim();
+  function validateForm() {
+    const fullName = form.full_name.trim();
+    const phone = form.phone.trim();
 
-  if (!fullName) {
-    alert("Nama penuh wajib diisi.");
-    return false;
+    if (!fullName) {
+      alert("Nama penuh wajib diisi.");
+      return false;
+    }
+
+    if (fullName.length < 3) {
+      alert("Nama penuh mestilah sekurang-kurangnya 3 aksara.");
+      return false;
+    }
+
+    if (phone && !isValidMalaysiaPhone(phone)) {
+      alert(
+        "Nombor telefon tidak sah. Sila masukkan nombor Malaysia yang bermula dengan 0. Contoh: 012-345 6789."
+      );
+      return false;
+    }
+
+    return true;
   }
 
-  if (fullName.length < 3) {
-    alert("Nama penuh mestilah sekurang-kurangnya 3 aksara.");
-    return false;
+  function openFilePicker() {
+    fileInputRef.current?.click();
   }
 
-  if (!email) {
-    alert("Email wajib diisi.");
-    return false;
+  function handleFileChange(file: File | null) {
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      alert("Sila pilih fail gambar sahaja.");
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert("Saiz gambar maksimum ialah 2MB.");
+      return;
+    }
+
+    setSelectedFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
   }
 
-  if (!isValidEmail(email)) {
-    alert("Format email tidak sah.");
-    return false;
+  function removeSelectedImage() {
+    setSelectedFile(null);
+    setPreviewUrl("");
+    setForm((prev) => ({
+      ...prev,
+      profile_image_url: "",
+    }));
   }
 
-  if (phone && !isValidMalaysiaPhone(phone)) {
-    alert(
-      "Nombor telefon tidak sah. Sila masukkan nombor Malaysia yang bermula dengan 0. Contoh: 012-345 6789."
-    );
-    return false;
+  async function uploadProfileImage() {
+    if (!selectedFile || !user?.id) {
+      return form.profile_image_url || null;
+    }
+
+    const extension = selectedFile.name.split(".").pop() || "png";
+    const filePath = `profile-images/${user.id}-${Date.now()}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("district-profile")
+      .upload(filePath, selectedFile, {
+        cacheControl: "3600",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data } = supabase.storage
+      .from("district-profile")
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
   }
 
-  if (password && password.length < 6) {
-    alert("Kata laluan mestilah sekurang-kurangnya 6 aksara.");
-    return false;
+  async function saveProfile() {
+    if (!user?.id) {
+      alert("Profil pengguna tidak dijumpai.");
+      return;
+    }
+
+    if (!validateForm()) return;
+
+    setSaving(true);
+
+    try {
+      const uploadedImageUrl = await uploadProfileImage();
+
+      const payload = {
+        full_name: form.full_name.trim(),
+        phone: normalizeMalaysiaPhone(form.phone) || null,
+        profile_image_url: uploadedImageUrl,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data, error } = await supabase
+        .from("system_users")
+        .update(payload)
+        .eq("id", user.id)
+        .eq("district_environment_id", user.district_environment_id || "")
+        .select("*")
+        .single<UserProfile>();
+
+      if (error) throw error;
+
+      const updatedUser = {
+        ...user,
+        ...data,
+        name: data.full_name || user.name || "",
+      };
+
+      setUser(updatedUser);
+
+      localStorage.setItem("user", JSON.stringify(updatedUser));
+      localStorage.setItem("auth_user", JSON.stringify(updatedUser));
+
+      window.dispatchEvent(new Event("userProfileUpdated"));
+
+      setForm({
+        full_name: updatedUser.full_name || "",
+        email: updatedUser.email || "",
+        phone: formatMalaysiaPhone(updatedUser.phone || ""),
+        profile_image_url: updatedUser.profile_image_url || "",
+      });
+
+      setPreviewUrl(updatedUser.profile_image_url || "");
+      setSelectedFile(null);
+
+      await addAuditLog("UPDATE", "Kemaskini profil pemimpin kumpulan");
+
+      alert("Profil berjaya dikemaskini.");
+    } catch (error: any) {
+      alert(error?.message || "Gagal kemaskini profil.");
+    } finally {
+      setSaving(false);
+    }
   }
-
-  return true;
-}
-
-async function saveProfile() {
-  if (!user?.id) {
-    alert("Profil pengguna tidak dijumpai.");
-    return;
-  }
-
-  if (!validateForm()) {
-    return;
-  }
-
-  setSaving(true);
-
-  const payload: any = {
-    full_name: form.full_name.trim(),
-    email: form.email.trim(),
-    phone: normalizeMalaysiaPhone(form.phone),
-    updated_at: new Date().toISOString(),
-  };
-
-  if (form.password.trim()) {
-    payload.password = form.password.trim();
-  }
-
-  const { error } = await supabase
-    .from("system_users")
-    .update(payload)
-    .eq("id", user.id);
-
-  if (error) {
-    alert(error.message);
-    setSaving(false);
-    return;
-  }
-
-  const updatedUser = {
-    ...user,
-    full_name: payload.full_name,
-    email: payload.email,
-    phone: payload.phone,
-    password: payload.password || user.password,
-    updated_at: payload.updated_at,
-  };
-
-  setUser(updatedUser);
-
-  const currentUser = getCurrentUser();
-
-  const updatedLocalUser = {
-    ...currentUser,
-    full_name: payload.full_name,
-    name: payload.full_name,
-    email: payload.email,
-    phone: payload.phone,
-  };
-
-  localStorage.setItem("user", JSON.stringify(updatedLocalUser));
-  localStorage.setItem("auth_user", JSON.stringify(updatedLocalUser));
-
-  window.dispatchEvent(new Event("userProfileUpdated"));
-
-  await addAuditLog("UPDATE", "Kemaskini profil pemimpin kumpulan");
-
-  setSaving(false);
-  alert("Profil berjaya dikemaskini.");
-}
-
-
 
   if (loading) {
     return (
@@ -393,11 +431,59 @@ async function saveProfile() {
         <div className="col-lg-4">
           <div className="card border-0 shadow-sm rounded-4 mb-4">
             <div className="card-body text-center p-4">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="d-none"
+                onChange={(event) =>
+                  handleFileChange(event.target.files?.[0] || null)
+                }
+              />
+
               <div
-                className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold mx-auto mb-3"
-                style={{ width: 90, height: 90, fontSize: 32 }}
+                className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold mx-auto mb-3 position-relative"
+                style={{
+                  width: 100,
+                  height: 100,
+                  fontSize: 32,
+                  overflow: "hidden",
+                }}
               >
-                {getInitials(userName)}
+                {previewUrl ? (
+                  <img
+                    src={previewUrl}
+                    alt={userName}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
+                  />
+                ) : (
+                  getInitials(userName)
+                )}
+              </div>
+
+              <div className="d-flex justify-content-center gap-2 mb-3">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-success"
+                  onClick={openFilePicker}
+                >
+                  <i className="bi bi-camera me-1"></i>
+                  Tukar Gambar
+                </button>
+
+                {previewUrl && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-danger"
+                    onClick={removeSelectedImage}
+                  >
+                    Buang
+                  </button>
+                )}
               </div>
 
               <h5 className="fw-bold mb-1">{userName}</h5>
@@ -484,7 +570,7 @@ async function saveProfile() {
             <div className="card-header bg-white border-0 p-4">
               <h5 className="fw-bold mb-1">Maklumat Akaun</h5>
               <p className="text-muted small mb-0">
-                Anda boleh kemaskini nama, email, telefon dan kata laluan.
+                Anda boleh kemaskini nama dan nombor telefon sahaja.
               </p>
             </div>
 
@@ -505,11 +591,9 @@ async function saveProfile() {
                   <label className="form-label">E-mel</label>
                   <input
                     type="email"
-                    className="form-control"
+                    className="form-control bg-light"
                     value={form.email}
-                    onChange={(e) =>
-                      setForm({ ...form, email: e.target.value })
-                    }
+                    readOnly
                   />
                 </div>
 
@@ -530,35 +614,23 @@ async function saveProfile() {
                 </div>
 
                 <div className="col-md-6">
-                  <label className="form-label">Kata Laluan</label>
-                  <input
-                    className="form-control"
-                    type="password"
-                    value={form.password}
-                    onChange={(e) =>
-                      setForm({ ...form, password: e.target.value })
-                    }
-                  />
-                  <small className="text-muted">
-                    Untuk development sahaja. Production nanti guna reset
-                    password.
-                  </small>
-                </div>
-
-                <div className="col-md-6">
                   <label className="form-label">Role</label>
-                  <input className="form-control" value={role} readOnly />
+                  <input className="form-control bg-light" value={role} readOnly />
                 </div>
 
                 <div className="col-md-6">
                   <label className="form-label">Status Akaun</label>
-                  <input className="form-control" value={status} readOnly />
+                  <input
+                    className="form-control bg-light"
+                    value={status}
+                    readOnly
+                  />
                 </div>
 
                 <div className="col-md-6">
                   <label className="form-label">Daerah</label>
                   <input
-                    className="form-control"
+                    className="form-control bg-light"
                     value={user.district || "-"}
                     readOnly
                   />
@@ -567,7 +639,7 @@ async function saveProfile() {
                 <div className="col-md-6">
                   <label className="form-label">Kumpulan</label>
                   <input
-                    className="form-control"
+                    className="form-control bg-light"
                     value={user.group_name || "-"}
                     readOnly
                   />
@@ -576,11 +648,18 @@ async function saveProfile() {
                 <div className="col-md-6">
                   <label className="form-label">Tarikh Daftar</label>
                   <input
-                    className="form-control"
+                    className="form-control bg-light"
                     value={formatDate(user.created_at)}
                     readOnly
                   />
                 </div>
+              </div>
+
+              <div className="alert alert-warning rounded-4 mt-4 mb-0 small">
+                <i className="bi bi-shield-lock me-2"></i>
+                Kata laluan tidak boleh ditukar di halaman ini untuk elak risiko
+                keselamatan. Gunakan fungsi reset password / admin flow yang
+                lebih selamat.
               </div>
             </div>
           </div>
