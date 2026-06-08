@@ -2,42 +2,29 @@ import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabaseClient";
 
-type Member = {
+type AssistantLeader = {
   id: string;
   full_name: string | null;
-  ic_number?: string | null;
-  email?: string | null;
+  email: string | null;
+  password?: string | null;
   phone?: string | null;
+  role: string | null;
+  district: string | null;
+  district_environment_id: string | null;
   group_id?: string | null;
   group_name?: string | null;
-  category?: string | null;
-  scout_category?: string | null;
-  age?: number | null;
-  gender?: string | null;
-  guardian_name?: string | null;
-  guardian_phone?: string | null;
-  address?: string | null;
-  notes?: string | null;
-  district?: string | null;
-  district_environment_id?: string | null;
-  status?: string | null;
+  status: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   deleted_at?: string | null;
+  profile_image_url?: string | null;
 };
 
-type MemberForm = {
+type AssistantLeaderForm = {
   full_name: string;
-  ic_number: string;
   email: string;
   phone: string;
-  category: string;
-  age: string;
-  gender: string;
-  guardian_name: string;
-  guardian_phone: string;
-  address: string;
-  notes: string;
+  password: string;
   status: string;
 };
 
@@ -54,13 +41,6 @@ type CurrentUser = {
 };
 
 const STATUS_OPTIONS = ["Aktif", "Tidak Aktif"];
-const GENDER_OPTIONS = ["Lelaki", "Perempuan"];
-const CATEGORY_OPTIONS = [
-  "Pengakap Kanak-Kanak",
-  "Pengakap Muda",
-  "Pengakap Remaja",
-  "Pengakap Kelana",
-];
 
 function getCurrentUser(): CurrentUser {
   try {
@@ -91,14 +71,6 @@ function normalizeStatus(status?: string | null) {
   if (value === "inactive" || value === "tidak aktif") return "Tidak Aktif";
 
   return status || "Aktif";
-}
-
-function getCategory(member?: Member | null) {
-  return (
-    member?.scout_category ||
-    member?.category ||
-    "Tidak Ditetapkan"
-  );
 }
 
 function normalizeMalaysiaPhone(value: string) {
@@ -137,21 +109,7 @@ function isValidMalaysiaPhone(value: string) {
   return digits.length >= 9 && digits.length <= 11;
 }
 
-function cleanIc(value: string) {
-  return value.replace(/\D/g, "").slice(0, 12);
-}
-
-function formatIc(value: string) {
-  const digits = cleanIc(value);
-
-  if (digits.length <= 6) return digits;
-  if (digits.length <= 8) return `${digits.slice(0, 6)}-${digits.slice(6)}`;
-
-  return `${digits.slice(0, 6)}-${digits.slice(6, 8)}-${digits.slice(8)}`;
-}
-
 function isValidEmail(email: string) {
-  if (!email) return true;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
@@ -177,10 +135,10 @@ async function addAuditLog(
 
     await supabase.from("audit_logs").insert({
       actor_name:
-        currentUser.full_name || currentUser.name || "Penolong Pemimpin",
-      actor_role: currentUser.role || "Penolong Pemimpin",
+        currentUser.full_name || currentUser.name || "Pemimpin Kumpulan",
+      actor_role: currentUser.role || "Pemimpin Kumpulan",
       action,
-      module: "Ahli Kumpulan",
+      module: "Penolong Pemimpin",
       description,
       user_id: currentUser.id || null,
       district_environment_id: currentUser.district_environment_id || null,
@@ -195,7 +153,7 @@ async function addAuditLog(
   }
 }
 
-export default function AssistantMembersPage() {
+export default function AssistantLeadersPage() {
   const currentUser = useMemo(() => getCurrentUser(), []);
 
   const groupId = currentUser.group_id || "";
@@ -203,53 +161,55 @@ export default function AssistantMembersPage() {
   const district = currentUser.district || "";
   const districtEnvironmentId = currentUser.district_environment_id || "";
 
-  const [members, setMembers] = useState<Member[]>([]);
+  const [assistants, setAssistants] = useState<AssistantLeader[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua Status");
-  const [categoryFilter, setCategoryFilter] = useState("Semua Kategori");
 
-  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
-  const [editingMember, setEditingMember] = useState<Member | null>(null);
-
+  const [showModal, setShowModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
-  const [showFormModal, setShowFormModal] = useState(false);
+  const [showDeactivateModal, setShowDeactivateModal] = useState(false);
 
-  const [form, setForm] = useState<MemberForm>({
+  const [editingAssistant, setEditingAssistant] =
+    useState<AssistantLeader | null>(null);
+  const [selectedAssistant, setSelectedAssistant] =
+    useState<AssistantLeader | null>(null);
+  const [deactivateTarget, setDeactivateTarget] =
+    useState<AssistantLeader | null>(null);
+
+  const [form, setForm] = useState<AssistantLeaderForm>({
     full_name: "",
-    ic_number: "",
     email: "",
     phone: "",
-    category: "Pengakap Kanak-Kanak",
-    age: "",
-    gender: "Lelaki",
-    guardian_name: "",
-    guardian_phone: "",
-    address: "",
-    notes: "",
+    password: "",
     status: "Aktif",
   });
 
   useEffect(() => {
-    fetchMembers();
+    fetchAssistants();
   }, []);
 
-  async function fetchMembers() {
+  async function fetchAssistants() {
     setLoading(true);
 
     if (!groupId && !groupName) {
-      setMembers([]);
+      setAssistants([]);
       setLoading(false);
       return;
     }
 
     let query = supabase
-      .from("members")
+      .from("system_users")
       .select("*")
+      .eq("role", "Penolong Pemimpin")
       .is("deleted_at", null)
       .order("full_name", { ascending: true });
+
+    if (districtEnvironmentId) {
+      query = query.eq("district_environment_id", districtEnvironmentId);
+    }
 
     if (groupId) {
       query = query.eq("group_id", groupId);
@@ -257,123 +217,106 @@ export default function AssistantMembersPage() {
       query = query.eq("group_name", groupName);
     }
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    }
-
     const { data, error } = await query;
 
     if (error) {
       alert(error.message);
-      setMembers([]);
+      setAssistants([]);
       setLoading(false);
       return;
     }
 
-    setMembers(data || []);
+    setAssistants(data || []);
     setLoading(false);
   }
 
   const stats = useMemo(() => {
-    const active = members.filter(
-      (member) => normalizeStatus(member.status) === "Aktif"
+    const active = assistants.filter(
+      (assistant) => normalizeStatus(assistant.status) === "Aktif"
     ).length;
 
-    const inactive = members.filter(
-      (member) => normalizeStatus(member.status) === "Tidak Aktif"
+    const inactive = assistants.filter(
+      (assistant) => normalizeStatus(assistant.status) === "Tidak Aktif"
     ).length;
 
     return {
-      total: members.length,
+      total: assistants.length,
       active,
       inactive,
     };
-  }, [members]);
+  }, [assistants]);
 
-  const filteredMembers = useMemo(() => {
+  const filteredAssistants = useMemo(() => {
     const keyword = search.toLowerCase().trim();
 
-    return members.filter((member) => {
-      const status = normalizeStatus(member.status);
-      const category = getCategory(member);
+    return assistants.filter((assistant) => {
+      const status = normalizeStatus(assistant.status);
 
       const matchSearch =
         !keyword ||
-        String(member.full_name || "").toLowerCase().includes(keyword) ||
-        String(member.email || "").toLowerCase().includes(keyword) ||
-        String(member.ic_number || "").includes(search.replace(/\D/g, "")) ||
-        String(member.phone || "").includes(search.replace(/\D/g, "")) ||
-        category.toLowerCase().includes(keyword);
+        String(assistant.full_name || "").toLowerCase().includes(keyword) ||
+        String(assistant.email || "").toLowerCase().includes(keyword) ||
+        String(assistant.phone || "").includes(search.replace(/\D/g, "")) ||
+        formatMalaysiaPhone(assistant.phone || "")
+          .toLowerCase()
+          .includes(keyword);
 
       const matchStatus =
         statusFilter === "Semua Status" || status === statusFilter;
 
-      const matchCategory =
-        categoryFilter === "Semua Kategori" || category === categoryFilter;
-
-      return matchSearch && matchStatus && matchCategory;
+      return matchSearch && matchStatus;
     });
-  }, [members, search, statusFilter, categoryFilter]);
+  }, [assistants, search, statusFilter]);
 
   function resetForm() {
-    setEditingMember(null);
+    setEditingAssistant(null);
 
     setForm({
       full_name: "",
-      ic_number: "",
       email: "",
       phone: "",
-      category: "Pengakap Kanak-Kanak",
-      age: "",
-      gender: "Lelaki",
-      guardian_name: "",
-      guardian_phone: "",
-      address: "",
-      notes: "",
+      password: "",
       status: "Aktif",
     });
   }
 
   function openAddModal() {
     resetForm();
-    setShowFormModal(true);
+    setShowModal(true);
   }
 
-  function openEditModal(member: Member) {
-    setEditingMember(member);
+  function openEditModal(assistant: AssistantLeader) {
+    setEditingAssistant(assistant);
 
     setForm({
-      full_name: member.full_name || "",
-      ic_number: formatIc(member.ic_number || ""),
-      email: member.email || "",
-      phone: formatMalaysiaPhone(member.phone || ""),
-      category: getCategory(member),
-      age: member.age ? String(member.age) : "",
-      gender: member.gender || "Lelaki",
-      guardian_name: member.guardian_name || "",
-      guardian_phone: formatMalaysiaPhone(member.guardian_phone || ""),
-      address: member.address || "",
-      notes: member.notes || "",
-      status: normalizeStatus(member.status),
+      full_name: assistant.full_name || "",
+      email: assistant.email || "",
+      phone: formatMalaysiaPhone(assistant.phone || ""),
+      password: "",
+      status: normalizeStatus(assistant.status),
     });
 
-    setShowFormModal(true);
+    setShowModal(true);
   }
 
-  function openViewModal(member: Member) {
-    setSelectedMember(member);
+  function openViewModal(assistant: AssistantLeader) {
+    setSelectedAssistant(assistant);
     setShowViewModal(true);
+  }
+
+  function openDeactivateModal(assistant: AssistantLeader) {
+    setDeactivateTarget(assistant);
+    setShowDeactivateModal(true);
   }
 
   function validateForm() {
     const fullName = form.full_name.trim();
-    const icNumber = cleanIc(form.ic_number);
     const email = form.email.trim();
     const phone = form.phone.trim();
-    const guardianPhone = form.guardian_phone.trim();
+    const password = form.password.trim();
 
     if (!fullName) {
-      alert("Sila isi nama penuh ahli.");
+      alert("Sila isi nama penuh Penolong Pemimpin.");
       return false;
     }
 
@@ -382,28 +325,35 @@ export default function AssistantMembersPage() {
       return false;
     }
 
-    if (icNumber && icNumber.length !== 12) {
-      alert("No IC/MyKid mestilah 12 digit.");
+    if (!email) {
+      alert("Sila isi email.");
       return false;
     }
 
-    if (email && !isValidEmail(email)) {
+    if (!isValidEmail(email)) {
       alert("Format email tidak sah.");
       return false;
     }
 
     if (phone && !isValidMalaysiaPhone(phone)) {
-      alert("No telefon ahli tidak sah.");
+      alert(
+        "Nombor telefon tidak sah. Sila masukkan nombor Malaysia yang bermula dengan 0. Contoh: 012-345 6789."
+      );
       return false;
     }
 
-    if (guardianPhone && !isValidMalaysiaPhone(guardianPhone)) {
-      alert("No telefon penjaga tidak sah.");
+    if (!editingAssistant && !password) {
+      alert("Sila isi kata laluan untuk akaun baru.");
+      return false;
+    }
+
+    if (password && password.length < 6) {
+      alert("Kata laluan mestilah sekurang-kurangnya 6 aksara.");
       return false;
     }
 
     if (!groupId && !groupName) {
-      alert("Akaun Penolong Pemimpin belum dipautkan dengan kumpulan.");
+      alert("Akaun Pemimpin Kumpulan belum dipautkan dengan kumpulan.");
       return false;
     }
 
@@ -415,18 +365,16 @@ export default function AssistantMembersPage() {
     return true;
   }
 
-  async function checkDuplicateIc(icNumber: string, ignoreMemberId?: string) {
-    if (!icNumber) return false;
-
+  async function checkDuplicateEmail(email: string, ignoreUserId?: string) {
     let query = supabase
-      .from("members")
+      .from("system_users")
       .select("id")
-      .eq("ic_number", icNumber)
+      .eq("email", email.trim().toLowerCase())
       .is("deleted_at", null)
       .limit(1);
 
-    if (ignoreMemberId) {
-      query = query.neq("id", ignoreMemberId);
+    if (ignoreUserId) {
+      query = query.neq("id", ignoreUserId);
     }
 
     const { data, error } = await query;
@@ -439,47 +387,47 @@ export default function AssistantMembersPage() {
     return (data || []).length > 0;
   }
 
-  async function saveMember() {
+  async function saveAssistant() {
     if (!validateForm()) return;
 
     setSaving(true);
 
-    const icNumber = cleanIc(form.ic_number);
+    const cleanEmail = form.email.trim().toLowerCase();
 
-    const duplicateIc = await checkDuplicateIc(icNumber, editingMember?.id);
+    const duplicateEmail = await checkDuplicateEmail(
+      cleanEmail,
+      editingAssistant?.id
+    );
 
-    if (duplicateIc) {
-      alert("No IC/MyKid ini sudah digunakan oleh ahli lain.");
+    if (duplicateEmail) {
+      alert("Email ini sudah digunakan oleh pengguna lain.");
       setSaving(false);
       return;
     }
 
     const payload: any = {
       full_name: form.full_name.trim(),
-      ic_number: icNumber || null,
-      email: form.email.trim() || null,
+      email: cleanEmail,
       phone: normalizeMalaysiaPhone(form.phone) || null,
-      category: form.category,
-      scout_category: form.category,
-      age: form.age ? Number(form.age) : null,
-      gender: form.gender || null,
-      guardian_name: form.guardian_name.trim() || null,
-      guardian_phone: normalizeMalaysiaPhone(form.guardian_phone) || null,
-      address: form.address.trim() || null,
-      notes: form.notes.trim() || null,
-      status: form.status,
+      role: "Penolong Pemimpin",
       district: district || null,
       district_environment_id: districtEnvironmentId,
       group_id: groupId || null,
       group_name: groupName || null,
+      status: form.status,
       updated_at: new Date().toISOString(),
     };
 
-    if (editingMember) {
+    if (form.password.trim()) {
+      payload.password = form.password.trim();
+    }
+
+    if (editingAssistant) {
       let updateQuery = supabase
-        .from("members")
+        .from("system_users")
         .update(payload)
-        .eq("id", editingMember.id)
+        .eq("id", editingAssistant.id)
+        .eq("role", "Penolong Pemimpin")
         .eq("district_environment_id", districtEnvironmentId)
         .is("deleted_at", null);
 
@@ -499,14 +447,14 @@ export default function AssistantMembersPage() {
 
       await addAuditLog(
         "UPDATE",
-        `Penolong Pemimpin kemaskini ahli: ${form.full_name}`,
-        editingMember.id,
-        editingMember,
+        `Kemaskini Penolong Pemimpin: ${form.full_name}`,
+        editingAssistant.id,
+        editingAssistant,
         payload
       );
     } else {
       const { data, error } = await supabase
-        .from("members")
+        .from("system_users")
         .insert({
           ...payload,
           created_at: new Date().toISOString(),
@@ -523,67 +471,168 @@ export default function AssistantMembersPage() {
 
       await addAuditLog(
         "CREATE",
-        `Penolong Pemimpin tambah ahli: ${form.full_name}`,
+        `Tambah Penolong Pemimpin: ${form.full_name}`,
         data?.id || null,
         null,
         payload
       );
     }
 
-    await fetchMembers();
+    await fetchAssistants();
     resetForm();
-    setShowFormModal(false);
+    setShowModal(false);
     setSaving(false);
 
-    alert(editingMember ? "Ahli berjaya dikemaskini." : "Ahli berjaya ditambah.");
+    alert(
+      editingAssistant
+        ? "Penolong Pemimpin berjaya dikemaskini."
+        : "Penolong Pemimpin berjaya ditambah."
+    );
+  }
+
+  async function deactivateAssistant() {
+    if (!deactivateTarget) return;
+
+    setSaving(true);
+
+    let updateQuery = supabase
+      .from("system_users")
+      .update({
+        status: "Tidak Aktif",
+        deleted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", deactivateTarget.id)
+      .eq("role", "Penolong Pemimpin")
+      .eq("district_environment_id", districtEnvironmentId)
+      .is("deleted_at", null);
+
+    if (groupId) {
+      updateQuery = updateQuery.eq("group_id", groupId);
+    } else {
+      updateQuery = updateQuery.eq("group_name", groupName);
+    }
+
+    const { error } = await updateQuery;
+
+    if (error) {
+      alert(error.message);
+      setSaving(false);
+      return;
+    }
+
+    await addAuditLog(
+      "DEACTIVATE",
+      `Nyahaktif Penolong Pemimpin: ${deactivateTarget.full_name}`,
+      deactivateTarget.id,
+      deactivateTarget,
+      {
+        status: "Tidak Aktif",
+        deleted_at: new Date().toISOString(),
+      }
+    );
+
+    await fetchAssistants();
+
+    setShowDeactivateModal(false);
+    setDeactivateTarget(null);
+    setSaving(false);
+
+    alert("Penolong Pemimpin berjaya dinyahaktif.");
+  }
+
+  function exportCSV() {
+    const headers = [
+      "BIL",
+      "NAMA PENUH",
+      "EMAIL",
+      "NO TELEFON",
+      "ROLE",
+      "KUMPULAN",
+      "DAERAH",
+      "STATUS",
+      "TARIKH DAFTAR",
+    ];
+
+    const rows = filteredAssistants.map((assistant, index) => [
+      index + 1,
+      assistant.full_name || "",
+      assistant.email || "",
+      formatMalaysiaPhone(assistant.phone || ""),
+      assistant.role || "",
+      assistant.group_name || "",
+      assistant.district || "",
+      normalizeStatus(assistant.status),
+      assistant.created_at || "",
+    ]);
+
+    const csvContent = [headers, ...rows]
+      .map((row) =>
+        row
+          .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob(["\ufeff" + csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `penolong-pemimpin-${groupName || "kumpulan"}.csv`;
+    link.click();
+
+    URL.revokeObjectURL(url);
   }
 
   if (!groupId && !groupName) {
     return (
-      <DashboardLayout role="assistantLeader">
+      <DashboardLayout role="groupLeader">
         <div className="alert alert-warning rounded-4">
           <i className="bi bi-exclamation-triangle me-2"></i>
-          Akaun anda belum dipautkan dengan kumpulan. Sila hubungi Pemimpin
-          Kumpulan atau Pesuruhjaya Daerah untuk kemaskini kumpulan anda.
+          Akaun anda belum dipautkan dengan kumpulan. Sila hubungi Pesuruhjaya
+          Daerah untuk kemaskini kumpulan anda.
         </div>
       </DashboardLayout>
     );
   }
 
   return (
-    <DashboardLayout role="assistantLeader">
+    <DashboardLayout role="groupLeader">
       <div className="d-flex justify-content-between align-items-start mb-4">
         <div>
-          <h2 className="fw-bold mb-1">Ahli Kumpulan</h2>
+          <h2 className="fw-bold mb-1">Penolong Pemimpin</h2>
           <p className="text-muted mb-0">
-            Urus ahli untuk kumpulan <strong>{groupName || "-"}</strong>.
+            Urus Penolong Pemimpin untuk kumpulan{" "}
+            <strong>{groupName || "-"}</strong>.
           </p>
         </div>
 
         <div className="d-flex gap-2">
-          <button className="btn btn-outline-success" onClick={fetchMembers}>
-            <i className="bi bi-arrow-clockwise me-1"></i>
-            Refresh
+          <button
+            className="btn btn-outline-success"
+            onClick={exportCSV}
+            disabled={loading || filteredAssistants.length === 0}
+          >
+            <i className="bi bi-file-earmark-spreadsheet me-1"></i>
+            Export CSV
           </button>
 
           <button className="btn btn-success" onClick={openAddModal}>
             <i className="bi bi-person-plus me-1"></i>
-            Tambah Ahli
+            Tambah Penolong
           </button>
         </div>
-      </div>
-
-      <div className="alert alert-light border rounded-4 mb-4">
-        <i className="bi bi-shield-check text-success me-2"></i>
-        Penolong Pemimpin hanya boleh tambah dan edit ahli dalam kumpulan sendiri.
-        Fungsi nyahaktif ahli dikawal oleh Pemimpin Kumpulan / Pesuruhjaya Daerah.
       </div>
 
       <div className="row g-3 mb-4">
         <div className="col-md-4">
           <div className="card border-0 shadow-sm rounded-4">
             <div className="card-body">
-              <small className="text-muted">Jumlah Ahli</small>
+              <small className="text-muted">Jumlah Penolong</small>
               <h3 className="fw-bold mb-0">{stats.total}</h3>
             </div>
           </div>
@@ -602,7 +651,7 @@ export default function AssistantMembersPage() {
           <div className="card border-0 shadow-sm rounded-4">
             <div className="card-body">
               <small className="text-muted">Tidak Aktif</small>
-              <h3 className="fw-bold text-warning mb-0">{stats.inactive}</h3>
+              <h3 className="fw-bold text-secondary mb-0">{stats.inactive}</h3>
             </div>
           </div>
         </div>
@@ -611,14 +660,14 @@ export default function AssistantMembersPage() {
       <div className="card border-0 shadow-sm rounded-4 mb-4">
         <div className="card-body">
           <div className="row g-3">
-            <div className="col-md-5">
+            <div className="col-md-7">
               <div className="input-group">
                 <span className="input-group-text bg-white">
                   <i className="bi bi-search"></i>
                 </span>
                 <input
                   className="form-control"
-                  placeholder="Cari nama, email, IC atau telefon..."
+                  placeholder="Cari nama, email atau telefon..."
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                 />
@@ -626,19 +675,6 @@ export default function AssistantMembersPage() {
             </div>
 
             <div className="col-md-3">
-              <select
-                className="form-select"
-                value={categoryFilter}
-                onChange={(event) => setCategoryFilter(event.target.value)}
-              >
-                <option>Semua Kategori</option>
-                {CATEGORY_OPTIONS.map((category) => (
-                  <option key={category}>{category}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="col-md-2">
               <select
                 className="form-select"
                 value={statusFilter}
@@ -657,7 +693,6 @@ export default function AssistantMembersPage() {
                 onClick={() => {
                   setSearch("");
                   setStatusFilter("Semua Status");
-                  setCategoryFilter("Semua Kategori");
                 }}
               >
                 Reset
@@ -667,16 +702,17 @@ export default function AssistantMembersPage() {
         </div>
       </div>
 
-      <div className="card border-0 shadow-sm rounded-4 overflow-hidden">
+      <div className="card border-0 shadow-sm rounded-4">
         <div className="table-responsive">
-          <table className="table table-hover align-middle mb-0">
+          <table className="table align-middle mb-0">
             <thead className="table-light">
               <tr>
-                <th className="px-4 py-3">Ahli</th>
-                <th className="px-4 py-3">IC/MyKid</th>
-                <th className="px-4 py-3">Kategori</th>
-                <th className="px-4 py-3">Umur</th>
+                <th className="px-4 py-3">Nama</th>
+                <th className="px-4 py-3">Email</th>
+                <th className="px-4 py-3">Telefon</th>
+                <th className="px-4 py-3">Kumpulan</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Daftar</th>
                 <th className="px-4 py-3 text-end">Tindakan</th>
               </tr>
             </thead>
@@ -684,66 +720,88 @@ export default function AssistantMembersPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-5">
+                  <td colSpan={7} className="text-center py-5">
                     <div className="spinner-border text-success"></div>
-                    <p className="text-muted mt-3 mb-0">Memuatkan ahli...</p>
+                    <p className="text-muted mt-3 mb-0">
+                      Memuatkan Penolong Pemimpin...
+                    </p>
                   </td>
                 </tr>
-              ) : filteredMembers.length === 0 ? (
+              ) : filteredAssistants.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-5 text-muted">
-                    <i className="bi bi-people fs-1 d-block mb-2"></i>
-                    Tiada ahli dijumpai.
+                  <td colSpan={7} className="text-center py-5 text-muted">
+                    <i className="bi bi-person-plus fs-1 d-block mb-2"></i>
+                    Tiada Penolong Pemimpin dijumpai.
                   </td>
                 </tr>
               ) : (
-                filteredMembers.map((member) => (
-                  <tr key={member.id}>
+                filteredAssistants.map((assistant) => (
+                  <tr key={assistant.id}>
                     <td className="px-4 py-3">
-                      <div className="d-flex align-items-center gap-3">
+                      <div className="d-flex align-items-center gap-2">
                         <div
                           className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold"
-                          style={{ width: 40, height: 40 }}
+                          style={{
+                            width: 40,
+                            height: 40,
+                            overflow: "hidden",
+                          }}
                         >
-                          {getInitials(member.full_name)}
+                          {assistant.profile_image_url ? (
+                            <img
+                              src={assistant.profile_image_url}
+                              alt={assistant.full_name || "-"}
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "cover",
+                              }}
+                            />
+                          ) : (
+                            getInitials(assistant.full_name)
+                          )}
                         </div>
 
                         <div>
                           <div className="fw-semibold">
-                            {member.full_name || "-"}
+                            {assistant.full_name || "-"}
                           </div>
                           <small className="text-muted">
-                            {member.email || "Tiada email"}
+                            {assistant.role || "Penolong Pemimpin"}
                           </small>
                         </div>
                       </div>
                     </td>
 
+                    <td className="px-4 py-3">{assistant.email || "-"}</td>
                     <td className="px-4 py-3">
-                      {formatIc(member.ic_number || "") || "-"}
+                      {formatMalaysiaPhone(assistant.phone || "") || "-"}
                     </td>
-
-                    <td className="px-4 py-3">{getCategory(member)}</td>
-
-                    <td className="px-4 py-3">{member.age || "-"}</td>
+                    <td className="px-4 py-3">
+                      {assistant.group_name || "-"}
+                    </td>
 
                     <td className="px-4 py-3">
                       <span
                         className={`badge rounded-pill ${
-                          normalizeStatus(member.status) === "Aktif"
+                          normalizeStatus(assistant.status) === "Aktif"
                             ? "bg-success"
                             : "bg-secondary"
                         }`}
                       >
-                        {normalizeStatus(member.status)}
+                        {normalizeStatus(assistant.status)}
                       </span>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      {formatDate(assistant.created_at)}
                     </td>
 
                     <td className="px-4 py-3 text-end">
                       <div className="btn-group btn-group-sm">
                         <button
                           className="btn btn-light border"
-                          onClick={() => openViewModal(member)}
+                          onClick={() => openViewModal(assistant)}
                           title="Lihat"
                         >
                           <i className="bi bi-eye text-primary"></i>
@@ -751,10 +809,18 @@ export default function AssistantMembersPage() {
 
                         <button
                           className="btn btn-light border"
-                          onClick={() => openEditModal(member)}
+                          onClick={() => openEditModal(assistant)}
                           title="Edit"
                         >
                           <i className="bi bi-pencil-square text-secondary"></i>
+                        </button>
+
+                        <button
+                          className="btn btn-light border"
+                          onClick={() => openDeactivateModal(assistant)}
+                          title="Nyahaktif"
+                        >
+                          <i className="bi bi-person-dash text-danger"></i>
                         </button>
                       </div>
                     </td>
@@ -764,13 +830,9 @@ export default function AssistantMembersPage() {
             </tbody>
           </table>
         </div>
-
-        <div className="card-footer bg-white p-4 small text-muted">
-          Memaparkan {filteredMembers.length} daripada {members.length} rekod
-        </div>
       </div>
 
-      {showFormModal && (
+      {showModal && (
         <div
           className="modal d-block"
           style={{ background: "rgba(0,0,0,.55)" }}
@@ -780,17 +842,19 @@ export default function AssistantMembersPage() {
               <div className="modal-header">
                 <div>
                   <h5 className="modal-title fw-bold">
-                    {editingMember ? "Edit Ahli" : "Tambah Ahli"}
+                    {editingAssistant
+                      ? "Edit Penolong Pemimpin"
+                      : "Tambah Penolong Pemimpin"}
                   </h5>
                   <small className="text-muted">
-                    Ahli akan dipautkan kepada kumpulan {groupName || "-"}.
+                    Akaun akan dipautkan kepada kumpulan {groupName || "-"}.
                   </small>
                 </div>
 
                 <button
                   className="btn-close"
                   onClick={() => {
-                    setShowFormModal(false);
+                    setShowModal(false);
                     resetForm();
                   }}
                 ></button>
@@ -806,22 +870,7 @@ export default function AssistantMembersPage() {
                       onChange={(event) =>
                         setForm({ ...form, full_name: event.target.value })
                       }
-                    />
-                  </div>
-
-                  <div className="col-md-6">
-                    <label className="form-label">IC/MyKid</label>
-                    <input
-                      className="form-control"
-                      value={form.ic_number}
-                      maxLength={14}
-                      onChange={(event) =>
-                        setForm({
-                          ...form,
-                          ic_number: formatIc(event.target.value),
-                        })
-                      }
-                      placeholder="010203-10-1234"
+                      placeholder="Nama penuh"
                     />
                   </div>
 
@@ -834,6 +883,7 @@ export default function AssistantMembersPage() {
                       onChange={(event) =>
                         setForm({ ...form, email: event.target.value })
                       }
+                      placeholder="email@example.com"
                     />
                   </div>
 
@@ -854,75 +904,26 @@ export default function AssistantMembersPage() {
                   </div>
 
                   <div className="col-md-6">
-                    <label className="form-label">Kategori</label>
-                    <select
-                      className="form-select"
-                      value={form.category}
-                      onChange={(event) =>
-                        setForm({ ...form, category: event.target.value })
-                      }
-                    >
-                      {CATEGORY_OPTIONS.map((category) => (
-                        <option key={category}>{category}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="col-md-3">
-                    <label className="form-label">Umur</label>
+                    <label className="form-label">
+                      Kata Laluan{" "}
+                      {editingAssistant && (
+                        <span className="text-muted small">
+                          optional kalau nak tukar
+                        </span>
+                      )}
+                    </label>
                     <input
-                      type="number"
-                      min={1}
-                      max={99}
+                      type="password"
                       className="form-control"
-                      value={form.age}
+                      value={form.password}
                       onChange={(event) =>
-                        setForm({ ...form, age: event.target.value })
+                        setForm({ ...form, password: event.target.value })
                       }
-                    />
-                  </div>
-
-                  <div className="col-md-3">
-                    <label className="form-label">Jantina</label>
-                    <select
-                      className="form-select"
-                      value={form.gender}
-                      onChange={(event) =>
-                        setForm({ ...form, gender: event.target.value })
+                      placeholder={
+                        editingAssistant
+                          ? "Kosongkan jika tidak mahu tukar"
+                          : "Minimum 6 aksara"
                       }
-                    >
-                      {GENDER_OPTIONS.map((gender) => (
-                        <option key={gender}>{gender}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="col-md-6">
-                    <label className="form-label">Nama Penjaga</label>
-                    <input
-                      className="form-control"
-                      value={form.guardian_name}
-                      onChange={(event) =>
-                        setForm({ ...form, guardian_name: event.target.value })
-                      }
-                    />
-                  </div>
-
-                  <div className="col-md-6">
-                    <label className="form-label">Telefon Penjaga</label>
-                    <input
-                      className="form-control"
-                      value={form.guardian_phone}
-                      maxLength={13}
-                      onChange={(event) =>
-                        setForm({
-                          ...form,
-                          guardian_phone: formatMalaysiaPhone(
-                            event.target.value
-                          ),
-                        })
-                      }
-                      placeholder="012-345 6789"
                     />
                   </div>
 
@@ -942,6 +943,24 @@ export default function AssistantMembersPage() {
                   </div>
 
                   <div className="col-md-6">
+                    <label className="form-label">Role</label>
+                    <input
+                      className="form-control bg-light"
+                      value="Penolong Pemimpin"
+                      readOnly
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Daerah</label>
+                    <input
+                      className="form-control bg-light"
+                      value={district || "-"}
+                      readOnly
+                    />
+                  </div>
+
+                  <div className="col-md-6">
                     <label className="form-label">Kumpulan</label>
                     <input
                       className="form-control bg-light"
@@ -949,36 +968,12 @@ export default function AssistantMembersPage() {
                       readOnly
                     />
                   </div>
-
-                  <div className="col-12">
-                    <label className="form-label">Alamat</label>
-                    <textarea
-                      className="form-control"
-                      rows={2}
-                      value={form.address}
-                      onChange={(event) =>
-                        setForm({ ...form, address: event.target.value })
-                      }
-                    ></textarea>
-                  </div>
-
-                  <div className="col-12">
-                    <label className="form-label">Catatan</label>
-                    <textarea
-                      className="form-control"
-                      rows={2}
-                      value={form.notes}
-                      onChange={(event) =>
-                        setForm({ ...form, notes: event.target.value })
-                      }
-                    ></textarea>
-                  </div>
                 </div>
 
                 <div className="alert alert-info rounded-4 small mt-4 mb-0">
-                  <i className="bi bi-info-circle me-2"></i>
-                  Penolong Pemimpin hanya boleh mengurus ahli dalam kumpulan
-                  sendiri sahaja.
+                  <i className="bi bi-shield-check me-2"></i>
+                  Penolong Pemimpin ini hanya akan mempunyai akses kepada
+                  kumpulan <strong>{groupName || "-"}</strong> sahaja.
                 </div>
               </div>
 
@@ -986,7 +981,7 @@ export default function AssistantMembersPage() {
                 <button
                   className="btn btn-outline-secondary"
                   onClick={() => {
-                    setShowFormModal(false);
+                    setShowModal(false);
                     resetForm();
                   }}
                   disabled={saving}
@@ -996,12 +991,12 @@ export default function AssistantMembersPage() {
 
                 <button
                   className="btn btn-success"
-                  onClick={saveMember}
+                  onClick={saveAssistant}
                   disabled={saving}
                 >
                   {saving
                     ? "Menyimpan..."
-                    : editingMember
+                    : editingAssistant
                     ? "Kemaskini"
                     : "Simpan"}
                 </button>
@@ -1011,21 +1006,23 @@ export default function AssistantMembersPage() {
         </div>
       )}
 
-      {showViewModal && selectedMember && (
+      {showViewModal && selectedAssistant && (
         <div
           className="modal d-block"
           style={{ background: "rgba(0,0,0,.55)" }}
         >
-          <div className="modal-dialog modal-dialog-centered modal-lg">
+          <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
-                <h5 className="modal-title fw-bold">Maklumat Ahli</h5>
+                <h5 className="modal-title fw-bold">
+                  Maklumat Penolong Pemimpin
+                </h5>
 
                 <button
                   className="btn-close"
                   onClick={() => {
                     setShowViewModal(false);
-                    setSelectedMember(null);
+                    setSelectedAssistant(null);
                   }}
                 ></button>
               </div>
@@ -1034,70 +1031,71 @@ export default function AssistantMembersPage() {
                 <div className="text-center mb-4">
                   <div
                     className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold mx-auto mb-3"
-                    style={{ width: 82, height: 82, fontSize: 26 }}
+                    style={{
+                      width: 82,
+                      height: 82,
+                      fontSize: 26,
+                      overflow: "hidden",
+                    }}
                   >
-                    {getInitials(selectedMember.full_name)}
+                    {selectedAssistant.profile_image_url ? (
+                      <img
+                        src={selectedAssistant.profile_image_url}
+                        alt={selectedAssistant.full_name || "-"}
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                        }}
+                      />
+                    ) : (
+                      getInitials(selectedAssistant.full_name)
+                    )}
                   </div>
 
                   <h5 className="fw-bold mb-1">
-                    {selectedMember.full_name || "-"}
+                    {selectedAssistant.full_name || "-"}
                   </h5>
 
                   <small className="text-muted">
-                    {getCategory(selectedMember)}
+                    {selectedAssistant.email || "-"}
                   </small>
                 </div>
 
                 <div className="list-group list-group-flush">
-                  <InfoRow
-                    label="IC/MyKid"
-                    value={formatIc(selectedMember.ic_number || "") || "-"}
-                  />
-                  <InfoRow label="Email" value={selectedMember.email || "-"} />
-                  <InfoRow
-                    label="Telefon"
-                    value={
-                      formatMalaysiaPhone(selectedMember.phone || "") || "-"
-                    }
-                  />
-                  <InfoRow
-                    label="Kumpulan"
-                    value={selectedMember.group_name || "-"}
-                  />
-                  <InfoRow
-                    label="Kategori"
-                    value={getCategory(selectedMember)}
-                  />
-                  <InfoRow
-                    label="Umur"
-                    value={selectedMember.age ? String(selectedMember.age) : "-"}
-                  />
-                  <InfoRow label="Jantina" value={selectedMember.gender || "-"} />
-                  <InfoRow
-                    label="Penjaga"
-                    value={selectedMember.guardian_name || "-"}
-                  />
-                  <InfoRow
-                    label="Telefon Penjaga"
-                    value={
-                      formatMalaysiaPhone(
-                        selectedMember.guardian_phone || ""
-                      ) || "-"
-                    }
-                  />
-                  <InfoRow
-                    label="Status"
-                    value={normalizeStatus(selectedMember.status)}
-                  />
-
-                  <div className="list-group-item">
-                    <span className="text-muted d-block mb-1">Alamat</span>
-                    <strong>{selectedMember.address || "-"}</strong>
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Telefon</span>
+                    <strong>
+                      {formatMalaysiaPhone(selectedAssistant.phone || "") ||
+                        "-"}
+                    </strong>
                   </div>
 
-                  <div className="list-group-item">
-                    <span className="text-muted d-block mb-1">Catatan</span>
-                    <strong>{selectedMember.notes || "-"}</strong>
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Role</span>
+                    <strong>
+                      {selectedAssistant.role || "Penolong Pemimpin"}
+                    </strong>
+                  </div>
+
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Status</span>
+                    <strong>{normalizeStatus(selectedAssistant.status)}</strong>
+                  </div>
+
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Daerah</span>
+                    <strong>{selectedAssistant.district || "-"}</strong>
+                  </div>
+
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Kumpulan</span>
+                    <strong>{selectedAssistant.group_name || "-"}</strong>
+                  </div>
+
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span className="text-muted">Tarikh Daftar</span>
+                    <strong>{formatDate(selectedAssistant.created_at)}</strong>
                   </div>
                 </div>
               </div>
@@ -1107,7 +1105,7 @@ export default function AssistantMembersPage() {
                   className="btn btn-outline-secondary"
                   onClick={() => {
                     setShowViewModal(false);
-                    setSelectedMember(null);
+                    setSelectedAssistant(null);
                   }}
                 >
                   Tutup
@@ -1117,7 +1115,7 @@ export default function AssistantMembersPage() {
                   className="btn btn-success"
                   onClick={() => {
                     setShowViewModal(false);
-                    openEditModal(selectedMember);
+                    openEditModal(selectedAssistant);
                   }}
                 >
                   Edit
@@ -1127,15 +1125,65 @@ export default function AssistantMembersPage() {
           </div>
         </div>
       )}
-    </DashboardLayout>
-  );
-}
 
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="list-group-item d-flex justify-content-between gap-3">
-      <span className="text-muted">{label}</span>
-      <strong className="text-end">{value}</strong>
-    </div>
+      {showDeactivateModal && deactivateTarget && (
+        <div
+          className="modal d-block"
+          style={{ background: "rgba(0,0,0,.55)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0 rounded-4">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold text-danger">
+                  Nyahaktif Penolong Pemimpin
+                </h5>
+
+                <button
+                  className="btn-close"
+                  onClick={() => {
+                    setShowDeactivateModal(false);
+                    setDeactivateTarget(null);
+                  }}
+                ></button>
+              </div>
+
+              <div className="modal-body">
+                <p className="mb-1">
+                  Adakah anda pasti mahu nyahaktif akaun ini?
+                </p>
+
+                <strong>{deactivateTarget.full_name || "-"}</strong>
+
+                <p className="text-muted small mt-2 mb-0">
+                  Akaun tidak dipadam kekal. Status akan ditukar kepada Tidak
+                  Aktif dan rekod disimpan sebagai audit.
+                </p>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  className="btn btn-outline-secondary"
+                  onClick={() => {
+                    setShowDeactivateModal(false);
+                    setDeactivateTarget(null);
+                  }}
+                  disabled={saving}
+                >
+                  Batal
+                </button>
+
+                <button
+                  className="btn btn-danger"
+                  onClick={deactivateAssistant}
+                  disabled={saving}
+                >
+                  {saving ? "Memproses..." : "Nyahaktif"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </DashboardLayout>
   );
 }

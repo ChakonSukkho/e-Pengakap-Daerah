@@ -35,6 +35,7 @@ import GroupMembersPage from "../pages/groupLeader/GroupMembersPage";
 import ActivitiesPage from "../pages/groupLeader/ActivitiesPage";
 import ProfilePage from "../pages/groupLeader/ProfilePage";
 import AttendancePage from "../pages/groupLeader/AttendancePage";
+import AssistantLeadersPage from "../pages/groupLeader/AssistantLeadersPage";
 import BadgesPage from "../pages/groupLeader/BadgesPage";
 
 import AssistantLeaderDashboard from "../pages/assistantLeader/AssistantLeaderDashboard";
@@ -256,6 +257,11 @@ export default function AppRoutes() {
       <Route
         path="/group-leader/profile"
         element={protect(GROUP_LEADER, <ProfilePage />)}
+      />
+
+      <Route
+        path="/group-leader/assistants"
+        element={protect(GROUP_LEADER, <AssistantLeadersPage />)}
       />
 
       {/* Assistant Leader */}

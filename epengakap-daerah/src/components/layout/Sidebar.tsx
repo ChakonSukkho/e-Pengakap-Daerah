@@ -131,6 +131,11 @@ const menus: Record<RoleType, MenuItem[]> = {
       icon: "bi-speedometer2",
     },
     {
+      to: "/group-leader/assistants",
+      label: "Penolong Pemimpin",
+      icon: "bi-person-plus",
+    },
+    {
       to: "/group-leader/members",
       label: "Ahli Kumpulan",
       icon: "bi-people",
