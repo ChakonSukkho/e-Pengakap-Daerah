@@ -30,6 +30,7 @@ import ACGroupManagementPage from "../pages/assistantCommissioner/ACGroupManagem
 import AssistantCommissionerActivitiesPage from "../pages/assistantCommissioner/AssistantCommissionerActivitiesPage";
 import AssistantCommissionerProfilePage from "../pages/assistantCommissioner/AssistantCommissionerProfilePage";
 import ReportsPage from "../pages/assistantCommissioner/ReportsPage";
+import ACUserManagementPage from "../pages/assistantCommissioner/ACUserManagementPage";
 
 import GroupLeaderDashboard from "../pages/groupLeader/GroupLeaderDashboard";
 import GroupMembersPage from "../pages/groupLeader/GroupMembersPage";
@@ -199,6 +200,11 @@ export default function AppRoutes() {
           ASSISTANT_COMMISSIONER,
           <AssistantCommissionerDashboard />
         )}
+      />
+
+      <Route
+        path="/assistant-commissioner/users"
+        element={protect(ASSISTANT_COMMISSIONER, <ACUserManagementPage />)}
       />
 
       <Route

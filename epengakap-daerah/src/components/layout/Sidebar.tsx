@@ -98,6 +98,11 @@ const menus: Record<RoleType, MenuItem[]> = {
       icon: "bi-speedometer2",
     },
     {
+      to: "/assistant-commissioner/users",
+      label: "Pengguna",
+      icon: "bi-people",
+    },
+    {
       to: "/assistant-commissioner/members",
       label: "Ahli Daerah",
       icon: "bi-people",

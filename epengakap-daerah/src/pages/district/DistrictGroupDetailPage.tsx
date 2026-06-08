@@ -103,7 +103,9 @@ export default function DistrictGroupDetailPage() {
   const navigate = useNavigate();
 
   const currentUser = useMemo(() => getCurrentUser(), []);
+
   const districtEnvironmentId = currentUser.district_environment_id || null;
+
   const district =
     currentUser.district ||
     currentUser.district_name ||
@@ -163,7 +165,20 @@ export default function DistrictGroupDetailPage() {
       let groupQuery = supabase
         .from("groups")
         .select(
-          "id, group_name, school_name, leader_user_id, leader_name, total_members, status, district, district_environment_id, created_at, updated_at, deleted_at"
+          `
+          id,
+          group_name,
+          school_name,
+          leader_user_id,
+          leader_name,
+          total_members,
+          status,
+          district,
+          district_environment_id,
+          created_at,
+          updated_at,
+          deleted_at
+        `
         )
         .eq("id", groupId)
         .is("deleted_at", null)
@@ -182,6 +197,7 @@ export default function DistrictGroupDetailPage() {
       }
 
       const selectedGroup = groupData as GroupRow;
+
       setGroup(selectedGroup);
 
       setForm({
@@ -225,14 +241,24 @@ export default function DistrictGroupDetailPage() {
       return;
     }
 
-    setLeaders(data || []);
+    setLeaders((data || []) as LeaderUser[]);
   }
 
   async function fetchMembers(selectedGroup: GroupRow) {
     let queryByGroupId = supabase
       .from("members")
       .select(
-        "id, full_name, ic_number, scout_category, gender, age, status, group_id, group_name"
+        `
+        id,
+        full_name,
+        ic_number,
+        scout_category,
+        gender,
+        age,
+        status,
+        group_id,
+        group_name
+      `
       )
       .is("deleted_at", null)
       .order("full_name", { ascending: true });
@@ -254,7 +280,17 @@ export default function DistrictGroupDetailPage() {
     let queryByGroupName = supabase
       .from("members")
       .select(
-        "id, full_name, ic_number, scout_category, gender, age, status, group_id, group_name"
+        `
+        id,
+        full_name,
+        ic_number,
+        scout_category,
+        gender,
+        age,
+        status,
+        group_id,
+        group_name
+      `
       )
       .is("deleted_at", null)
       .order("full_name", { ascending: true });
@@ -279,7 +315,17 @@ export default function DistrictGroupDetailPage() {
   async function fetchActivities(selectedGroup: GroupRow) {
     let queryByGroupId = supabase
       .from("activities")
-      .select("id, activity_name, activity_date, location, status, group_id, group_name")
+      .select(
+        `
+        id,
+        activity_name,
+        activity_date,
+        location,
+        status,
+        group_id,
+        group_name
+      `
+      )
       .is("deleted_at", null)
       .order("activity_date", { ascending: false });
 
@@ -299,7 +345,17 @@ export default function DistrictGroupDetailPage() {
 
     let queryByGroupName = supabase
       .from("activities")
-      .select("id, activity_name, activity_date, location, status, group_id, group_name")
+      .select(
+        `
+        id,
+        activity_name,
+        activity_date,
+        location,
+        status,
+        group_id,
+        group_name
+      `
+      )
       .is("deleted_at", null)
       .order("activity_date", { ascending: false });
 
@@ -324,7 +380,18 @@ export default function DistrictGroupDetailPage() {
   async function fetchAssistants(selectedGroup: GroupRow) {
     let queryByGroupId = supabase
       .from("system_users")
-      .select("id, full_name, email, phone, role, status, group_id, group_name")
+      .select(
+        `
+        id,
+        full_name,
+        email,
+        phone,
+        role,
+        status,
+        group_id,
+        group_name
+      `
+      )
       .eq("role", "Penolong Pemimpin")
       .is("deleted_at", null)
       .order("full_name", { ascending: true });
@@ -345,7 +412,18 @@ export default function DistrictGroupDetailPage() {
 
     let queryByGroupName = supabase
       .from("system_users")
-      .select("id, full_name, email, phone, role, status, group_id, group_name")
+      .select(
+        `
+        id,
+        full_name,
+        email,
+        phone,
+        role,
+        status,
+        group_id,
+        group_name
+      `
+      )
       .eq("role", "Penolong Pemimpin")
       .is("deleted_at", null)
       .order("full_name", { ascending: true });
@@ -431,13 +509,15 @@ export default function DistrictGroupDetailPage() {
     setSaving(true);
 
     try {
+      const payload = {
+        status: "Tidak Aktif",
+        deleted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
       let query = supabase
         .from("groups")
-        .update({
-          status: "Tidak Aktif",
-          deleted_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
+        .update(payload)
         .eq("id", group.id)
         .is("deleted_at", null);
 
@@ -520,6 +600,7 @@ export default function DistrictGroupDetailPage() {
 
       <div className="mb-4">
         <button
+          type="button"
           className="btn btn-link text-muted text-decoration-none p-0 mb-2"
           onClick={() => navigate("/district/groups")}
         >
@@ -537,6 +618,7 @@ export default function DistrictGroupDetailPage() {
 
           <div className="d-flex gap-2">
             <button
+              type="button"
               className="btn btn-outline-success"
               onClick={() => setShowEditModal(true)}
             >
@@ -545,6 +627,7 @@ export default function DistrictGroupDetailPage() {
             </button>
 
             <button
+              type="button"
               className="btn btn-outline-danger"
               onClick={() => setShowDeactivateModal(true)}
             >
@@ -601,6 +684,7 @@ export default function DistrictGroupDetailPage() {
         <div className="card-body p-0">
           <div className="d-flex flex-wrap px-3 border-bottom">
             <button
+              type="button"
               className={`tab-btn ${activeTab === "overview" ? "active" : ""}`}
               onClick={() => setActiveTab("overview")}
             >
@@ -608,6 +692,7 @@ export default function DistrictGroupDetailPage() {
             </button>
 
             <button
+              type="button"
               className={`tab-btn ${activeTab === "members" ? "active" : ""}`}
               onClick={() => setActiveTab("members")}
             >
@@ -615,6 +700,7 @@ export default function DistrictGroupDetailPage() {
             </button>
 
             <button
+              type="button"
               className={`tab-btn ${
                 activeTab === "activities" ? "active" : ""
               }`}
@@ -624,6 +710,7 @@ export default function DistrictGroupDetailPage() {
             </button>
 
             <button
+              type="button"
               className={`tab-btn ${
                 activeTab === "assistants" ? "active" : ""
               }`}
