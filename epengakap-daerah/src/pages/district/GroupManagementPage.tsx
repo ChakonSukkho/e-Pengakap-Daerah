@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../../services/supabaseClient";
+import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
+import { supabase } from "../../services/supabaseClient";
 import { addAuditLog } from "../../utils/auditLog";
 
 type ScoutGroup = {
@@ -13,8 +14,8 @@ type ScoutGroup = {
   status: string;
   district?: string | null;
   district_environment_id?: string | null;
-  created_at?: string;
-  updated_at?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
   deleted_at?: string | null;
 };
 
@@ -33,7 +34,6 @@ type GroupForm = {
   school_name: string;
   leader_user_id: string;
   leader_name: string;
-  total_members: string;
   status: string;
 };
 
@@ -85,32 +85,24 @@ function formatDate(date?: string | null) {
 }
 
 export default function GroupManagementPage() {
+  const navigate = useNavigate();
+
   const [groups, setGroups] = useState<ScoutGroup[]>([]);
   const [leaders, setLeaders] = useState<LeaderUser[]>([]);
 
   const [editingGroup, setEditingGroup] = useState<ScoutGroup | null>(null);
-  const [selectedGroup, setSelectedGroup] = useState<ScoutGroup | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<ScoutGroup | null>(null);
 
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [showGroupModal, setShowGroupModal] = useState(false);
-  const [showManageModal, setShowManageModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showMembersModal, setShowMembersModal] = useState(false);
-  const [showActivitiesModal, setShowActivitiesModal] = useState(false);
-
-  const [groupMembers, setGroupMembers] = useState<any[]>([]);
-  const [groupActivities, setGroupActivities] = useState<any[]>([]);
 
   const [form, setForm] = useState<GroupForm>({
     group_name: "",
     school_name: "",
     leader_user_id: "",
     leader_name: "",
-    total_members: "",
     status: "Aktif",
   });
 
@@ -156,7 +148,20 @@ export default function GroupManagementPage() {
     let query = supabase
       .from("groups")
       .select(
-        "id, group_name, school_name, leader_user_id, leader_name, total_members, status, district, district_environment_id, created_at, updated_at, deleted_at"
+        `
+        id,
+        group_name,
+        school_name,
+        leader_user_id,
+        leader_name,
+        total_members,
+        status,
+        district,
+        district_environment_id,
+        created_at,
+        updated_at,
+        deleted_at
+      `
       )
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -172,14 +177,59 @@ export default function GroupManagementPage() {
       return;
     }
 
-    setGroups(data || []);
+    const baseGroups = (data || []) as ScoutGroup[];
+
+    let memberQuery = supabase
+      .from("members")
+      .select("id, group_id, group_name, status")
+      .is("deleted_at", null)
+      .in("status", ["Aktif", "active"]);
+
+    memberQuery = applyDistrictScope(memberQuery);
+
+    const { data: membersData, error: membersError } = await memberQuery;
+
+    const memberCountMap: Record<string, number> = {};
+
+    if (!membersError && membersData) {
+      membersData.forEach((member: any) => {
+        if (member.group_id) {
+          memberCountMap[member.group_id] =
+            (memberCountMap[member.group_id] || 0) + 1;
+          return;
+        }
+
+        if (member.group_name) {
+          const matchedGroup = baseGroups.find(
+            (group) =>
+              group.group_name === member.group_name ||
+              group.school_name === member.group_name
+          );
+
+          if (matchedGroup?.id) {
+            memberCountMap[matchedGroup.id] =
+              (memberCountMap[matchedGroup.id] || 0) + 1;
+          }
+        }
+      });
+    }
+
+    const groupsWithCount = baseGroups.map((group) => ({
+      ...group,
+      status: normalizeStatus(group.status),
+      total_members: memberCountMap[group.id] ?? group.total_members ?? 0,
+    }));
+
+    setGroups(groupsWithCount);
     setLoading(false);
   }
 
   async function fetchActiveGroupLeaders() {
     let query = supabase
       .from("system_users")
-      .select("id, full_name, email, role, status, district, district_environment_id")
+      .select(
+        "id, full_name, email, role, status, district, district_environment_id"
+      )
       .in("role", ["Pemimpin Kumpulan", "group_leader"])
       .in("status", ["Aktif", "active"])
       .is("deleted_at", null)
@@ -218,7 +268,6 @@ export default function GroupManagementPage() {
       school_name: "",
       leader_user_id: "",
       leader_name: "",
-      total_members: "",
       status: "Aktif",
     });
   }
@@ -235,11 +284,6 @@ export default function GroupManagementPage() {
     setShowGroupModal(true);
   }
 
-  function openManageModal(group: ScoutGroup) {
-    setSelectedGroup(group);
-    setShowManageModal(true);
-  }
-
   function openEditModal(group: ScoutGroup) {
     setEditingGroup(group);
 
@@ -248,18 +292,14 @@ export default function GroupManagementPage() {
       school_name: group.school_name || "",
       leader_user_id: group.leader_user_id || "",
       leader_name: group.leader_name || "",
-      total_members: String(group.total_members || 0),
       status: normalizeStatus(group.status),
     });
 
-    setShowManageModal(false);
     setShowGroupModal(true);
   }
 
-  function openDeleteModal(group: ScoutGroup) {
-    setDeleteTarget(group);
-    setShowManageModal(false);
-    setShowDeleteModal(true);
+  function goToGroupDetail(group: ScoutGroup) {
+    navigate(`/district/groups/${group.id}`);
   }
 
   async function checkDuplicateGroupName(ignoreGroupId?: string) {
@@ -297,13 +337,6 @@ export default function GroupManagementPage() {
       return false;
     }
 
-    const totalMembers = Number(form.total_members || 0);
-
-    if (Number.isNaN(totalMembers) || totalMembers < 0) {
-      alert("Jumlah ahli tidak sah.");
-      return false;
-    }
-
     if (!districtEnvironmentId && !district) {
       alert(
         "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
@@ -336,7 +369,6 @@ export default function GroupManagementPage() {
       school_name: form.school_name.trim(),
       leader_user_id: form.leader_user_id || null,
       leader_name: selectedLeader?.full_name || form.leader_name || null,
-      total_members: Number(form.total_members || 0),
       status: form.status,
       district: district || null,
       district_environment_id: districtEnvironmentId || null,
@@ -347,7 +379,8 @@ export default function GroupManagementPage() {
       let query = supabase
         .from("groups")
         .update(payload)
-        .eq("id", editingGroup.id);
+        .eq("id", editingGroup.id)
+        .is("deleted_at", null);
 
       query = applyDistrictScope(query);
 
@@ -365,10 +398,13 @@ export default function GroupManagementPage() {
         `Kemaskini kumpulan ${form.group_name}`
       );
     } else {
-      const { error } = await supabase.from("groups").insert({
+      const insertPayload = {
         ...payload,
+        total_members: 0,
         created_at: new Date().toISOString(),
-      });
+      };
+
+      const { error } = await supabase.from("groups").insert(insertPayload);
 
       if (error) {
         alert(error.message);
@@ -389,107 +425,22 @@ export default function GroupManagementPage() {
     setSaving(false);
   }
 
-  async function deactivateGroup() {
-    if (!deleteTarget) return;
-
-    setSaving(true);
-
-    let query = supabase
-      .from("groups")
-      .update({
-        status: "Tidak Aktif",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", deleteTarget.id);
-
-    query = applyDistrictScope(query);
-
-    const { error } = await query;
-
-    if (error) {
-      alert(error.message);
-      setSaving(false);
-      return;
-    }
-
-    await addAuditLog(
-      "DEACTIVATE",
-      "Kumpulan / Sekolah",
-      `Nyahaktif kumpulan ${deleteTarget.group_name}`
-    );
-
-    await fetchGroups();
-    setShowDeleteModal(false);
-    setDeleteTarget(null);
-    setSaving(false);
-  }
-
-  async function viewMembers(group: ScoutGroup) {
-    let query = supabase
-      .from("members")
-      .select("*")
-      .is("deleted_at", null)
-      .eq("group_id", group.id)
-      .order("full_name", { ascending: true });
-
-    query = applyDistrictScope(query);
-
-    let { data, error } = await query;
-
-    if (error) {
-      const possibleGroupNames = [group.group_name, group.school_name].filter(
-        Boolean
-      );
-
-      let fallbackQuery = supabase
-        .from("members")
-        .select("*")
-        .is("deleted_at", null)
-        .in("group_name", possibleGroupNames)
-        .order("full_name", { ascending: true });
-
-      fallbackQuery = applyDistrictScope(fallbackQuery);
-
-      const fallbackResult = await fallbackQuery;
-      data = fallbackResult.data;
-      error = fallbackResult.error;
-    }
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    setGroupMembers(data || []);
-    setShowMembersModal(true);
-  }
-
-  async function viewActivities(group: ScoutGroup) {
-    const possibleGroupNames = [group.group_name, group.school_name].filter(
-      Boolean
-    );
-
-    let query = supabase
-      .from("activities")
-      .select("*")
-      .in("group_name", possibleGroupNames)
-      .order("activity_date", { ascending: true });
-
-    query = applyDistrictScope(query);
-
-    const { data, error } = await query;
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    setGroupActivities(data || []);
-    setShowActivitiesModal(true);
-  }
-
   return (
     <DashboardLayout role="district">
+      <style>
+        {`
+          .group-card {
+            cursor: pointer;
+            transition: all 0.2s ease;
+          }
+
+          .group-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 0.75rem 1.5rem rgba(0,0,0,.12) !important;
+          }
+        `}
+      </style>
+
       <div className="mb-4">
         <h2 className="fw-bold mb-1">Pengurusan Kumpulan / Sekolah</h2>
         <p className="text-muted mb-0">
@@ -510,7 +461,7 @@ export default function GroupManagementPage() {
                   className="form-control"
                   placeholder="Cari kumpulan, sekolah atau pemimpin..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(event) => setSearch(event.target.value)}
                 />
               </div>
             </div>
@@ -545,13 +496,16 @@ export default function GroupManagementPage() {
             <div className="row g-4">
               {filteredGroups.map((group) => (
                 <div className="col-md-6 col-xl-4" key={group.id}>
-                  <div className="card h-100 border shadow-sm rounded-4">
+                  <div
+                    className="card h-100 border shadow-sm rounded-4 group-card"
+                    onClick={() => goToGroupDetail(group)}
+                  >
                     <div className="card-body p-4">
                       <div className="d-flex justify-content-between align-items-start mb-3">
                         <div>
                           <h5 className="fw-bold mb-1">{group.group_name}</h5>
                           <div className="text-muted small">
-                            {group.school_name}
+                            {group.school_name || "-"}
                           </div>
                         </div>
 
@@ -587,10 +541,13 @@ export default function GroupManagementPage() {
                         <button
                           type="button"
                           className="btn btn-sm btn-outline-success"
-                          onClick={() => openManageModal(group)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            goToGroupDetail(group);
+                          }}
                         >
-                          <i className="bi bi-pencil-square me-1"></i>
-                          Urus
+                          <i className="bi bi-box-arrow-up-right me-1"></i>
+                          Buka
                         </button>
                       </div>
 
@@ -606,96 +563,6 @@ export default function GroupManagementPage() {
           )}
         </div>
       </div>
-
-      {showManageModal && selectedGroup && (
-        <div
-          className="modal d-block"
-          tabIndex={-1}
-          style={{ background: "rgba(0,0,0,.55)" }}
-        >
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content border-0 rounded-4">
-              <div className="modal-header">
-                <h5 className="modal-title fw-bold">Urus Kumpulan</h5>
-
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => setShowManageModal(false)}
-                ></button>
-              </div>
-
-              <div className="modal-body">
-                <h5 className="fw-bold mb-1">{selectedGroup.group_name}</h5>
-                <p className="text-muted">{selectedGroup.school_name}</p>
-
-                <div className="list-group list-group-flush mb-3">
-                  <div className="list-group-item d-flex justify-content-between">
-                    <span className="text-muted">Pemimpin</span>
-                    <strong>{selectedGroup.leader_name || "-"}</strong>
-                  </div>
-
-                  <div className="list-group-item d-flex justify-content-between">
-                    <span className="text-muted">Jumlah Ahli</span>
-                    <strong>{selectedGroup.total_members || 0}</strong>
-                  </div>
-
-                  <div className="list-group-item d-flex justify-content-between">
-                    <span className="text-muted">Status</span>
-                    <span
-                      className={`badge ${
-                        isActive(selectedGroup.status)
-                          ? "bg-success"
-                          : "bg-warning text-dark"
-                      }`}
-                    >
-                      {normalizeStatus(selectedGroup.status)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="d-grid gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-outline-success"
-                    onClick={() => openEditModal(selectedGroup)}
-                  >
-                    <i className="bi bi-pencil-square me-1"></i>
-                    Edit Maklumat Kumpulan
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn btn-outline-primary"
-                    onClick={() => viewMembers(selectedGroup)}
-                  >
-                    <i className="bi bi-people me-1"></i>
-                    Lihat Senarai Ahli
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary"
-                    onClick={() => viewActivities(selectedGroup)}
-                  >
-                    <i className="bi bi-calendar-event me-1"></i>
-                    Lihat Aktiviti Kumpulan
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn btn-outline-danger"
-                    onClick={() => openDeleteModal(selectedGroup)}
-                  >
-                    <i className="bi bi-x-circle me-1"></i>
-                    Nyahaktif Kumpulan
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showGroupModal && (
         <div
@@ -728,8 +595,8 @@ export default function GroupManagementPage() {
                     <input
                       className="form-control"
                       value={form.group_name}
-                      onChange={(e) =>
-                        setForm({ ...form, group_name: e.target.value })
+                      onChange={(event) =>
+                        setForm({ ...form, group_name: event.target.value })
                       }
                       placeholder="KP 01 Kulim"
                       disabled={saving}
@@ -741,8 +608,8 @@ export default function GroupManagementPage() {
                     <input
                       className="form-control"
                       value={form.school_name}
-                      onChange={(e) =>
-                        setForm({ ...form, school_name: e.target.value })
+                      onChange={(event) =>
+                        setForm({ ...form, school_name: event.target.value })
                       }
                       placeholder="SMK Kulim"
                       disabled={saving}
@@ -755,14 +622,14 @@ export default function GroupManagementPage() {
                     <select
                       className="form-select"
                       value={form.leader_user_id}
-                      onChange={(e) => {
+                      onChange={(event) => {
                         const selectedLeader = leaders.find(
-                          (leader) => leader.id === e.target.value
+                          (leader) => leader.id === event.target.value
                         );
 
                         setForm({
                           ...form,
-                          leader_user_id: e.target.value,
+                          leader_user_id: event.target.value,
                           leader_name: selectedLeader?.full_name || "",
                         });
                       }}
@@ -786,30 +653,12 @@ export default function GroupManagementPage() {
                   </div>
 
                   <div className="col-md-6">
-                    <label className="form-label">Jumlah Ahli</label>
-                    <input
-                      type="number"
-                      className="form-control"
-                      value={form.total_members}
-                      onChange={(e) =>
-                        setForm({ ...form, total_members: e.target.value })
-                      }
-                      placeholder="0"
-                      min={0}
-                      disabled={saving}
-                    />
-                    <small className="text-muted">
-                      Boleh diisi manual atau dikemaskini kemudian.
-                    </small>
-                  </div>
-
-                  <div className="col-md-6">
                     <label className="form-label">Status</label>
                     <select
                       className="form-select"
                       value={form.status}
-                      onChange={(e) =>
-                        setForm({ ...form, status: e.target.value })
+                      onChange={(event) =>
+                        setForm({ ...form, status: event.target.value })
                       }
                       disabled={saving}
                     >
@@ -845,191 +694,6 @@ export default function GroupManagementPage() {
                     ? "Kemaskini Kumpulan"
                     : "Simpan Kumpulan"}
                 </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDeleteModal && deleteTarget && (
-        <div
-          className="modal d-block"
-          tabIndex={-1}
-          style={{ background: "rgba(0,0,0,.55)" }}
-        >
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content border-0 rounded-4">
-              <div className="modal-header">
-                <h5 className="modal-title fw-bold text-danger">
-                  Nyahaktif Kumpulan
-                </h5>
-
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => {
-                    setShowDeleteModal(false);
-                    setDeleteTarget(null);
-                  }}
-                  disabled={saving}
-                ></button>
-              </div>
-
-              <div className="modal-body">
-                <p className="mb-1">
-                  Adakah anda pasti mahu nyahaktif kumpulan ini?
-                </p>
-                <strong>{deleteTarget.group_name}</strong>
-                <p className="text-muted small mt-2 mb-0">
-                  Kumpulan tidak dipadam kekal. Status akan ditukar kepada Tidak
-                  Aktif.
-                </p>
-              </div>
-
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-outline-secondary"
-                  onClick={() => {
-                    setShowDeleteModal(false);
-                    setDeleteTarget(null);
-                  }}
-                  disabled={saving}
-                >
-                  Batal
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-danger"
-                  onClick={deactivateGroup}
-                  disabled={saving}
-                >
-                  {saving ? "Memproses..." : "Nyahaktif"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showMembersModal && (
-        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
-          <div className="modal-dialog modal-lg modal-dialog-centered">
-            <div className="modal-content border-0 rounded-4">
-              <div className="modal-header">
-                <h5 className="fw-bold mb-0">Senarai Ahli Kumpulan</h5>
-
-                <button
-                  className="btn-close"
-                  onClick={() => setShowMembersModal(false)}
-                />
-              </div>
-
-              <div className="modal-body">
-                {groupMembers.length === 0 ? (
-                  <p className="text-muted mb-0">
-                    Tiada ahli dalam kumpulan ini.
-                  </p>
-                ) : (
-                  <table className="table align-middle">
-                    <thead>
-                      <tr>
-                        <th>Nama</th>
-                        <th>Umur</th>
-                        <th>Jantina</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {groupMembers.map((member) => (
-                        <tr key={member.id}>
-                          <td>{member.full_name}</td>
-                          <td>{member.age || "-"}</td>
-                          <td>{member.gender || "-"}</td>
-                          <td>
-                            <span
-                              className={`badge ${
-                                isActive(member.status)
-                                  ? "bg-success"
-                                  : "bg-secondary"
-                              }`}
-                            >
-                              {normalizeStatus(member.status)}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showActivitiesModal && (
-        <div
-          className="modal d-block"
-          tabIndex={-1}
-          style={{ background: "rgba(0,0,0,.55)" }}
-        >
-          <div className="modal-dialog modal-lg modal-dialog-centered">
-            <div className="modal-content border-0 rounded-4">
-              <div className="modal-header">
-                <h5 className="modal-title fw-bold">Aktiviti Kumpulan</h5>
-
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => setShowActivitiesModal(false)}
-                ></button>
-              </div>
-
-              <div className="modal-body">
-                {groupActivities.length === 0 ? (
-                  <p className="text-muted mb-0">
-                    Tiada aktiviti untuk kumpulan ini.
-                  </p>
-                ) : (
-                  <table className="table align-middle">
-                    <thead>
-                      <tr>
-                        <th>Aktiviti</th>
-                        <th>Tarikh</th>
-                        <th>Lokasi</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {groupActivities.map((activity) => (
-                        <tr key={activity.id}>
-                          <td>
-                            {activity.activity_name ||
-                              activity.title ||
-                              "Aktiviti Tanpa Nama"}
-                          </td>
-                          <td>
-                            {formatDate(
-                              activity.activity_date ||
-                                activity.date ||
-                                activity.created_at
-                            )}
-                          </td>
-                          <td>{activity.location || "-"}</td>
-                          <td>
-                            <span className="badge bg-primary">
-                              {activity.status || "-"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
               </div>
             </div>
           </div>

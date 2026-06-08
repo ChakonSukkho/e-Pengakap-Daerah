@@ -26,6 +26,15 @@ type DistrictEnvironment = {
   deleted_at: string | null;
 };
 
+type GroupRow = {
+  id: string;
+  group_name: string | null;
+  district: string | null;
+  district_environment_id: string | null;
+  status: string | null;
+  deleted_at: string | null;
+};
+
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
@@ -45,9 +54,29 @@ function normalizeRole(value?: string | null) {
 function normalizeStatus(value?: string | null) {
   const status = String(value || "").trim().toLowerCase();
 
-  if (status === "aktif" || status === "active") return "Aktif";
-  if (status === "tidak aktif" || status === "inactive") return "Tidak Aktif";
-  if (status === "pending" || status === "menunggu") return "Pending";
+  if (status === "aktif" || status === "active" || status === "approved") {
+    return "Aktif";
+  }
+
+  if (status === "tidak aktif" || status === "inactive") {
+    return "Tidak Aktif";
+  }
+
+  if (
+    status === "pending" ||
+    status === "menunggu" ||
+    status === "pending approval"
+  ) {
+    return "Pending Approval";
+  }
+
+  if (status === "rejected" || status === "ditolak") {
+    return "Rejected";
+  }
+
+  if (status === "suspended" || status === "digantung") {
+    return "Suspended";
+  }
 
   return value || "";
 }
@@ -58,6 +87,15 @@ function isDistrictRole(role?: string | null) {
   return (
     normalized === "Pesuruhjaya Daerah" ||
     normalized === "Penolong Pesuruhjaya Daerah" ||
+    normalized === "Pemimpin Kumpulan" ||
+    normalized === "Penolong Pemimpin"
+  );
+}
+
+function isGroupRole(role?: string | null) {
+  const normalized = normalizeRole(role);
+
+  return (
     normalized === "Pemimpin Kumpulan" ||
     normalized === "Penolong Pemimpin"
   );
@@ -103,21 +141,60 @@ export default function LoginPage() {
     const userRole = normalizeRole(user.role);
 
     if (userRole === "Pesuruhjaya Daerah") {
-      const { data: environmentByCommissioner, error } = await supabase
+      const { data, error } = await supabase
         .from("district_environments")
-        .select(
-          "id, district_commissioner_user_id, district_id, status, deleted_at"
-        )
+        .select("id, district_commissioner_user_id, district_id, status, deleted_at")
         .eq("district_commissioner_user_id", user.id)
         .is("deleted_at", null)
-        .maybeSingle<DistrictEnvironment>();
+        .maybeSingle();
 
       if (error) {
         console.warn("Failed to find district environment:", error.message);
       }
 
-      if (environmentByCommissioner?.id) {
-        return environmentByCommissioner.id;
+      const environment = data as DistrictEnvironment | null;
+
+      if (environment?.id) {
+        return environment.id;
+      }
+    }
+
+    if (user.group_id) {
+      const { data, error } = await supabase
+        .from("groups")
+        .select("id, group_name, district, district_environment_id, status, deleted_at")
+        .eq("id", user.group_id)
+        .is("deleted_at", null)
+        .maybeSingle();
+
+      if (error) {
+        console.warn("Failed to find environment by group_id:", error.message);
+      }
+
+      const group = data as GroupRow | null;
+
+      if (group?.district_environment_id) {
+        return group.district_environment_id;
+      }
+    }
+
+    if (user.group_name && user.district) {
+      const { data, error } = await supabase
+        .from("groups")
+        .select("id, group_name, district, district_environment_id, status, deleted_at")
+        .eq("group_name", user.group_name)
+        .eq("district", user.district)
+        .is("deleted_at", null)
+        .maybeSingle();
+
+      if (error) {
+        console.warn("Failed to find environment by group_name:", error.message);
+      }
+
+      const group = data as GroupRow | null;
+
+      if (group?.district_environment_id) {
+        return group.district_environment_id;
       }
     }
 
@@ -131,6 +208,26 @@ export default function LoginPage() {
         last_login_at: new Date().toISOString(),
       })
       .eq("id", userId);
+  }
+
+  async function insertLoginAuditLog(user: any) {
+    await supabase.from("audit_logs").insert({
+      user_id: user.id,
+      actor_name: user.full_name || user.email || "Unknown User",
+      actor_role: user.role || "Unknown Role",
+      action: "LOGIN",
+      module: "Authentication",
+      description: `${user.full_name || user.email} log masuk ke sistem.`,
+      district_environment_id: user.district_environment_id || null,
+      record_id: user.id,
+      old_value: null,
+      new_value: {
+        email: user.email,
+        role: user.role,
+      },
+      ip_address: null,
+      user_agent: navigator.userAgent,
+    });
   }
 
   async function handleLogin() {
@@ -150,28 +247,62 @@ export default function LoginPage() {
 
       const { data, error } = await supabase
         .from("system_users")
-        .select("*")
+        .select(`
+          id,
+          full_name,
+          email,
+          password,
+          phone,
+          profile_image_url,
+          role,
+          district,
+          district_environment_id,
+          group_id,
+          group_name,
+          status
+        `)
         .eq("email", cleanEmail)
         .eq("password", cleanPassword)
-        .in("status", ["Aktif", "active", "Active"])
-        .maybeSingle<SystemUser>();
+        .is("deleted_at", null)
+        .maybeSingle();
 
       if (error) throw error;
 
       if (!data) {
-        alert("Email atau kata laluan tidak sah, atau akaun belum aktif.");
+        alert("Email atau kata laluan tidak sah.");
         return;
       }
 
-      const userRole = normalizeRole(data.role);
-      const userStatus = normalizeStatus(data.status);
+      const user = data as SystemUser;
+      const userRole = normalizeRole(user.role);
+      const userStatus = normalizeStatus(user.status);
+
+      if (!userRole) {
+        alert("Akaun ini belum mempunyai role. Sila hubungi pentadbir sistem.");
+        return;
+      }
+
+      if (userStatus === "Pending Approval") {
+        navigate("/pending-approval", { replace: true });
+        return;
+      }
+
+      if (userStatus === "Rejected") {
+        alert("Permohonan akaun ini telah ditolak.");
+        return;
+      }
+
+      if (userStatus === "Suspended") {
+        alert("Akaun ini telah digantung. Sila hubungi pentadbir sistem.");
+        return;
+      }
 
       if (userStatus !== "Aktif") {
         alert("Akaun belum aktif. Sila hubungi pentadbir sistem.");
         return;
       }
 
-      const districtEnvironmentId = await findDistrictEnvironment(data);
+      const districtEnvironmentId = await findDistrictEnvironment(user);
 
       if (isDistrictRole(userRole) && !districtEnvironmentId) {
         alert(
@@ -180,25 +311,33 @@ export default function LoginPage() {
         return;
       }
 
+      if (isGroupRole(userRole) && !user.group_id && !user.group_name) {
+        alert(
+          "Akaun ini belum dihubungkan dengan kumpulan. Sila hubungi Pesuruhjaya Daerah atau Pemimpin Kumpulan."
+        );
+        return;
+      }
+
       const loginUser = {
-        id: data.id,
-        full_name: data.full_name || "",
-        name: data.full_name || "",
-        email: data.email || "",
+        id: user.id,
+        full_name: user.full_name || "",
+        name: user.full_name || "",
+        email: user.email || "",
         role: userRole,
-        district: data.district || null,
+        district: user.district || null,
         district_environment_id: districtEnvironmentId,
-        group_id: data.group_id || null,
-        group_name: data.group_name || null,
+        group_id: user.group_id || null,
+        group_name: user.group_name || null,
         status: userStatus,
-        phone: data.phone || null,
-        profile_image_url: data.profile_image_url || null,
+        phone: user.phone || null,
+        profile_image_url: user.profile_image_url || null,
       };
 
       localStorage.setItem("user", JSON.stringify(loginUser));
       localStorage.setItem("auth_user", JSON.stringify(loginUser));
 
-      await updateLastLogin(data.id);
+      await updateLastLogin(user.id);
+      await insertLoginAuditLog(loginUser);
 
       window.dispatchEvent(new Event("userProfileUpdated"));
 
@@ -390,6 +529,10 @@ export default function LoginPage() {
                       Pesuruhjaya: pesuruhjaya@petaling.gov.my / 123456
                       <br />
                       Penolong Pesuruhjaya: penolong@petaling.gov.my / 123456
+                      <br />
+                      Pemimpin Kumpulan: pemimpin@petaling.gov.my / 123456
+                      <br />
+                      Penolong Pemimpin: penolongpemimpin@petaling.gov.my / 123456
                     </div>
                   </div>
                 </form>

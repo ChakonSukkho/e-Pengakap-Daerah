@@ -22,6 +22,7 @@ import DistrictSettingsPage from "../pages/district/DistrictSettingsPage";
 import DistrictActivitiesPage from "../pages/district/DistrictActivitiesPage";
 import DistrictProfilePage from "../pages/district/DistrictProfilePage";
 import AuditLogPage from "../pages/district/AuditLogPage";
+import DistrictGroupDetailPage from "../pages/district/DistrictGroupDetailPage";
 
 import AssistantCommissionerDashboard from "../pages/assistantCommissioner/AssistantCommissionerDashboard";
 import ACMemberManagementPage from "../pages/assistantCommissioner/ACMemberManagementPage";
@@ -176,6 +177,14 @@ export default function AppRoutes() {
       <Route
         path="/district/audit-log"
         element={protect(DISTRICT_COMMISSIONER, <AuditLogPage />)}
+      />
+
+      <Route
+        path="/district/groups/:groupId"
+        element={protect(
+          [...DISTRICT_COMMISSIONER, ...ASSISTANT_COMMISSIONER],
+          <DistrictGroupDetailPage />
+        )}
       />
 
       {/* Assistant Commissioner */}
