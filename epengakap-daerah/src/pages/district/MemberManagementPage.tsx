@@ -590,46 +590,66 @@ export default function MemberManagementPage() {
     }
   }
 
+  const groupNameById = useMemo(() => {
+    const map = new Map<string, string>();
+
+    groups.forEach((group) => {
+      map.set(group.id, group.group_name);
+    });
+
+    return map;
+  }, [groups]);
+
+  function getLiveGroupName(member: Member) {
+    if (member.group_id && groupNameById.has(member.group_id)) {
+      return groupNameById.get(member.group_id) || member.group_name || "-";
+    }
+
+    return member.group_name || "-";
+  }
+
   const filteredMembers = useMemo(() => {
     const keyword = search.toLowerCase().trim();
     const cleanKeyword = search.replace(/\D/g, "");
     const cleanPhoneFilter = phoneFilter.replace(/\D/g, "");
-
+  
     return members.filter((member) => {
+      const liveGroupName = getLiveGroupName(member);
       const memberStatus = normalizeStatus(member.status);
       const memberCategory = member.category || member.scout_category || "";
       const formattedIC = formatMalaysianIC(member.ic_number || "");
       const formattedPhone = formatMalaysianPhone(member.guardian_phone || "");
-
+    
       const matchSearch =
         !keyword ||
         (member.full_name || "").toLowerCase().includes(keyword) ||
         (member.email || "").toLowerCase().includes(keyword) ||
         (member.guardian_email || "").toLowerCase().includes(keyword) ||
-        (member.group_name || "").toLowerCase().includes(keyword) ||
+        liveGroupName.toLowerCase().includes(keyword) ||
         (member.ic_number || "").includes(cleanKeyword) ||
         formattedIC.toLowerCase().includes(keyword) ||
         (member.guardian_phone || "").includes(cleanKeyword) ||
         formattedPhone.toLowerCase().includes(keyword);
-
+    
       const matchPhone =
         !cleanPhoneFilter ||
         (member.guardian_phone || "").includes(cleanPhoneFilter) ||
         formattedPhone.replace(/\D/g, "").includes(cleanPhoneFilter);
-
+    
       const matchGroup =
-        groupFilter === "Semua Kumpulan" || member.group_name === groupFilter;
-
+        groupFilter === "Semua Kumpulan" ||
+        member.group_id === groupFilter ||
+        liveGroupName === groupFilter;
+    
       const matchCategory =
-        categoryFilter === "Semua Kategori" ||
-        memberCategory === categoryFilter;
-
+        categoryFilter === "Semua Kategori" || memberCategory === categoryFilter;
+    
       const matchStatus =
         statusFilter === "Semua Status" || memberStatus === statusFilter;
-
+    
       const matchGender =
         genderFilter === "Semua Jantina" || member.gender === genderFilter;
-
+    
       return (
         matchSearch &&
         matchPhone &&
@@ -641,6 +661,8 @@ export default function MemberManagementPage() {
     });
   }, [
     members,
+    groups,
+    groupNameById,
     search,
     phoneFilter,
     groupFilter,
@@ -688,7 +710,7 @@ export default function MemberManagementPage() {
       full_name: member.full_name || "",
       email: member.email || "",
       group_id: member.group_id || "",
-      group_name: member.group_name || "",
+      group_name: getLiveGroupName(member),
       category:
         member.category || member.scout_category || "Pengakap Kanak-Kanak",
       age: member.age ? String(member.age) : "",
@@ -1426,7 +1448,7 @@ export default function MemberManagementPage() {
               >
                 <option>Semua Kumpulan</option>
                 {groups.map((group) => (
-                  <option key={group.id} value={group.group_name}>
+                  <option key={group.id} value={group.id}>
                     {group.group_name}
                   </option>
                 ))}
@@ -1441,7 +1463,9 @@ export default function MemberManagementPage() {
               >
                 <option>Semua Kategori</option>
                 {CATEGORY_OPTIONS.map((category) => (
-                  <option key={category}>{category}</option>
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
                 ))}
               </select>
             </div>
@@ -1529,7 +1553,7 @@ export default function MemberManagementPage() {
                     </td>
 
                     <td>{displayMalaysianIC(member.ic_number)}</td>
-                    <td>{member.group_name || "-"}</td>
+                    <td>{getLiveGroupName(member)}</td>
                     <td>{member.category || member.scout_category || "-"}</td>
                     <td>{member.age || "-"}</td>
                     <td>{member.gender || "-"}</td>
@@ -2053,7 +2077,7 @@ export default function MemberManagementPage() {
               <div className="modal-body">
                 <h5 className="fw-bold">{selectedMember.full_name}</h5>
                 <p className="text-muted mb-3">
-                  {selectedMember.group_name || "-"}
+                  {getLiveGroupName(selectedMember)}
                 </p>
 
                 <div className="list-group list-group-flush">

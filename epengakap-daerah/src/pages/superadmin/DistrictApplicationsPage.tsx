@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabaseClient";
 
@@ -133,6 +134,8 @@ function getStatusBadge(statusValue?: string | null) {
 }
 
 export default function DistrictApplicationsPage() {
+  const navigate = useNavigate();
+
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -335,6 +338,7 @@ export default function DistrictApplicationsPage() {
     const currentUser = getCurrentUser();
 
     const stateId = await findStateId(normalizeText(application.state));
+
     const districtId = await findDistrictId(
       stateId,
       normalizeText(application.district)
@@ -403,57 +407,57 @@ export default function DistrictApplicationsPage() {
     return newEnvironment;
   }
 
-async function syncDistrictSettings(
-  application: Application,
-  districtEnvironmentId: string
-) {
-  try {
-    const payload = {
-      district_environment_id: districtEnvironmentId,
-      state: normalizeText(application.state),
-      district: normalizeText(application.district),
-      official_name:
-        normalizeText(application.organization) ||
-        normalizeText(application.district),
-      email: normalizeEmail(application.email),
-      phone: normalizeText(application.phone),
-      commissioner: normalizeText(application.applicant_name),
-      address: "",
-      status: "Active",
-      updated_at: new Date().toISOString(),
-    };
+  async function syncDistrictSettings(
+    application: Application,
+    districtEnvironmentId: string
+  ) {
+    try {
+      const payload = {
+        district_environment_id: districtEnvironmentId,
+        state: normalizeText(application.state),
+        district: normalizeText(application.district),
+        official_name:
+          normalizeText(application.organization) ||
+          normalizeText(application.district),
+        email: normalizeEmail(application.email),
+        phone: normalizeText(application.phone),
+        commissioner: normalizeText(application.applicant_name),
+        address: "",
+        status: "Active",
+        updated_at: new Date().toISOString(),
+      };
 
-    const { data: existingSetting, error: findError } = await supabase
-      .from("district_settings")
-      .select("id")
-      .eq("district_environment_id", districtEnvironmentId)
-      .maybeSingle();
-
-    if (findError) throw findError;
-
-    if (existingSetting) {
-      const { error: updateError } = await supabase
+      const { data: existingSetting, error: findError } = await supabase
         .from("district_settings")
-        .update(payload)
-        .eq("id", existingSetting.id);
+        .select("id")
+        .eq("district_environment_id", districtEnvironmentId)
+        .maybeSingle();
 
-      if (updateError) throw updateError;
+      if (findError) throw findError;
 
-      return;
+      if (existingSetting) {
+        const { error: updateError } = await supabase
+          .from("district_settings")
+          .update(payload)
+          .eq("id", existingSetting.id);
+
+        if (updateError) throw updateError;
+
+        return;
+      }
+
+      const { error: insertError } = await supabase
+        .from("district_settings")
+        .insert({
+          ...payload,
+          created_at: new Date().toISOString(),
+        });
+
+      if (insertError) throw insertError;
+    } catch (error: any) {
+      console.warn("District settings sync failed:", error?.message || error);
     }
-
-    const { error: insertError } = await supabase
-      .from("district_settings")
-      .insert({
-        ...payload,
-        created_at: new Date().toISOString(),
-      });
-
-    if (insertError) throw insertError;
-  } catch (error: any) {
-    console.warn("District settings sync failed:", error?.message || error);
   }
-}
 
   async function approveApplication(application: Application) {
     if (!validateApplication(application)) return;
@@ -464,7 +468,7 @@ async function syncDistrictSettings(
     }
 
     const confirmed = window.confirm(
-      `Luluskan permohonan daerah ${application.district}? Sistem akan cipta district environment.`
+      `Luluskan permohonan daerah ${application.district}? Sistem akan cipta district environment dan akaun Pesuruhjaya Daerah.`
     );
 
     if (!confirmed) return;
@@ -521,7 +525,7 @@ async function syncDistrictSettings(
       setShowViewModal(false);
 
       alert(
-        `Permohonan ${application.district} berjaya diluluskan. District environment telah dicipta/diaktifkan.`
+        `Permohonan ${application.district} berjaya diluluskan. District environment dan akaun Pesuruhjaya Daerah telah dicipta/diaktifkan.`
       );
     } catch (error: any) {
       console.error("Approve application failed:", error);
@@ -616,6 +620,22 @@ async function syncDistrictSettings(
     setShowViewModal(true);
   }
 
+  function closeViewModal() {
+    setShowViewModal(false);
+    setSelectedApplication(null);
+  }
+
+  function goToManageUsers(application?: Application | null) {
+    const email = normalizeEmail(application?.email);
+
+    if (email) {
+      navigate(`/superadmin/users?search=${encodeURIComponent(email)}`);
+      return;
+    }
+
+    navigate("/superadmin/users");
+  }
+
   const states = useMemo(() => {
     const items = applications
       .map((item) => normalizeText(item.state))
@@ -689,18 +709,35 @@ async function syncDistrictSettings(
         <div>
           <h2 className="fw-bold mb-1">Permohonan Daerah</h2>
           <p className="text-muted mb-0">
-            Semak, luluskan, tolak atau minta maklumat tambahan untuk pendaftaran daerah.
+            Semak, luluskan, tolak atau minta maklumat tambahan untuk
+            pendaftaran daerah.
           </p>
         </div>
 
-        <button
-          className="btn btn-outline-success"
-          onClick={fetchApplications}
-          disabled={loading}
-        >
-          <i className="bi bi-arrow-clockwise me-2"></i>
-          Refresh
-        </button>
+        <div className="d-flex gap-2 flex-wrap">
+          <button
+            className="btn btn-outline-primary"
+            onClick={() => goToManageUsers()}
+          >
+            <i className="bi bi-people me-2"></i>
+            Urus Pengguna
+          </button>
+
+          <button
+            className="btn btn-outline-success"
+            onClick={fetchApplications}
+            disabled={loading}
+          >
+            <i className="bi bi-arrow-clockwise me-2"></i>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="alert alert-light border rounded-4 mb-4">
+        <i className="bi bi-info-circle text-primary me-2"></i>
+        Permohonan yang diluluskan akan mencipta / mengemaskini akaun{" "}
+        <strong>Pesuruhjaya Daerah</strong> dalam Pengguna Sistem.
       </div>
 
       <div className="row g-3 mb-4">
@@ -872,6 +909,17 @@ async function syncDistrictSettings(
                             <i className="bi bi-eye"></i>
                           </button>
 
+                          {status === "Approved" && (
+                            <button
+                              className="btn btn-sm btn-light border text-primary rounded-3"
+                              title="Urus Pengguna"
+                              disabled={isUpdating}
+                              onClick={() => goToManageUsers(app)}
+                            >
+                              <i className="bi bi-person-gear"></i>
+                            </button>
+                          )}
+
                           {(status === "Pending" || status === "More Info") && (
                             <>
                               <button
@@ -917,7 +965,8 @@ async function syncDistrictSettings(
         </div>
 
         <div className="card-footer bg-white border-top p-4 small text-muted">
-          Memaparkan {filteredApplications.length} daripada {applications.length} rekod
+          Memaparkan {filteredApplications.length} daripada{" "}
+          {applications.length} rekod
         </div>
       </div>
 
@@ -928,12 +977,14 @@ async function syncDistrictSettings(
               <div className="modal-header">
                 <div>
                   <h5 className="modal-title fw-bold">Maklumat Permohonan</h5>
-                  <small className="text-muted">ID: {selectedApplication.id}</small>
+                  <small className="text-muted">
+                    ID: {selectedApplication.id}
+                  </small>
                 </div>
 
                 <button
                   className="btn-close"
-                  onClick={() => setShowViewModal(false)}
+                  onClick={closeViewModal}
                 ></button>
               </div>
 
@@ -946,7 +997,10 @@ async function syncDistrictSettings(
                   <DetailItem label="Email" value={selectedApplication.email} />
                   <DetailItem label="Telefon" value={selectedApplication.phone} />
                   <DetailItem label="Negeri" value={selectedApplication.state} />
-                  <DetailItem label="Daerah" value={selectedApplication.district} />
+                  <DetailItem
+                    label="Daerah"
+                    value={selectedApplication.district}
+                  />
                   <DetailItem
                     label="Organisasi"
                     value={selectedApplication.organization}
@@ -969,13 +1023,40 @@ async function syncDistrictSettings(
                       <div>{selectedApplication.admin_note || "-"}</div>
                     </div>
                   </div>
+
+                  {displayStatus(selectedApplication.status) === "Approved" && (
+                    <div className="col-12">
+                      <div className="alert alert-success rounded-4 mb-0">
+                        <div className="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                          <div>
+                            <div className="fw-semibold">
+                              Permohonan telah diluluskan.
+                            </div>
+                            <small>
+                              Akaun Pesuruhjaya Daerah boleh diurus dalam
+                              Pengguna Sistem.
+                            </small>
+                          </div>
+
+                          <button
+                            className="btn btn-primary"
+                            onClick={() => goToManageUsers(selectedApplication)}
+                          >
+                            <i className="bi bi-person-gear me-2"></i>
+                            Urus Pengguna Ini
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="modal-footer justify-content-between">
                 <div>
                   {(displayStatus(selectedApplication.status) === "Pending" ||
-                    displayStatus(selectedApplication.status) === "More Info") && (
+                    displayStatus(selectedApplication.status) ===
+                      "More Info") && (
                     <>
                       <button
                         className="btn btn-success me-2"
@@ -1004,12 +1085,24 @@ async function syncDistrictSettings(
                   )}
                 </div>
 
-                <button
-                  className="btn btn-outline-secondary"
-                  onClick={() => setShowViewModal(false)}
-                >
-                  Tutup
-                </button>
+                <div className="d-flex gap-2">
+                  {displayStatus(selectedApplication.status) === "Approved" && (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => goToManageUsers(selectedApplication)}
+                    >
+                      <i className="bi bi-person-gear me-2"></i>
+                      Urus Pengguna
+                    </button>
+                  )}
+
+                  <button
+                    className="btn btn-outline-secondary"
+                    onClick={closeViewModal}
+                  >
+                    Tutup
+                  </button>
+                </div>
               </div>
             </div>
           </div>

@@ -2,6 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabaseClient";
 
+type Medal = {
+  name: string;
+  date: string;
+  serial_no: string;
+};
+
 type SystemUser = {
   id: string;
   full_name: string | null;
@@ -18,8 +24,9 @@ type SystemUser = {
   tauliah_no: string | null;
   tauliah_date: string | null;
   tauliah_status: string | null;
-  certificate_no: string | null;
-  medal_no: string | null;
+  certificate_no?: string | null;
+  medal_no?: string | null;
+  medals: Medal[] | string | null;
   created_at?: string | null;
   updated_at?: string | null;
   deleted_at?: string | null;
@@ -49,8 +56,7 @@ type UserForm = {
   tauliah_no: string;
   tauliah_date: string;
   tauliah_status: string;
-  certificate_no: string;
-  medal_no: string;
+  medals: Medal[];
 };
 
 const ROLE_OPTIONS = [
@@ -213,6 +219,39 @@ function getTauliahBadge(type?: string | null) {
   return "bg-light text-muted border";
 }
 
+function emptyMedal(): Medal {
+  return {
+    name: "",
+    date: "",
+    serial_no: "",
+  };
+}
+
+function normalizeMedals(value: any): Medal[] {
+  if (!value) return [];
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => ({
+        name: String(item?.name || "").trim(),
+        date: String(item?.date || "").trim(),
+        serial_no: String(item?.serial_no || "").trim(),
+      }))
+      .filter((item) => item.name || item.date || item.serial_no);
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return normalizeMedals(parsed);
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
 async function addAuditLog(
   action: string,
   description: string,
@@ -244,6 +283,9 @@ export default function UserManagementPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [confirmRemoveMedalIndex, setConfirmRemoveMedalIndex] = useState<
+    number | null
+  >(null);
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("Semua Role");
@@ -280,8 +322,7 @@ export default function UserManagementPage() {
     tauliah_no: "",
     tauliah_date: "",
     tauliah_status: "Tiada",
-    certificate_no: "",
-    medal_no: "",
+    medals: [],
   });
 
   useEffect(() => {
@@ -331,7 +372,7 @@ export default function UserManagementPage() {
       return;
     }
 
-    setUsers(data || []);
+    setUsers((data || []) as SystemUser[]);
     setLoading(false);
   }
 
@@ -355,8 +396,28 @@ export default function UserManagementPage() {
     }
 
     setGroups(
-      (data || []).filter((group) => normalizeStatus(group.status) === "Aktif")
+      ((data || []) as ScoutGroup[]).filter(
+        (group) => normalizeStatus(group.status) === "Aktif"
+      )
     );
+  }
+
+  const groupNameById = useMemo(() => {
+    const map = new Map<string, string>();
+
+    groups.forEach((group) => {
+      map.set(group.id, group.group_name);
+    });
+
+    return map;
+  }, [groups]);
+
+  function getLiveGroupName(user: SystemUser) {
+    if (user.group_id && groupNameById.has(user.group_id)) {
+      return groupNameById.get(user.group_id) || user.group_name || "-";
+    }
+
+    return user.group_name || "-";
   }
 
   const filteredUsers = useMemo(() => {
@@ -364,20 +425,26 @@ export default function UserManagementPage() {
     const cleanKeyword = search.replace(/\D/g, "");
 
     return users.filter((user) => {
+      const liveGroupName = getLiveGroupName(user);
       const role = normalizeRole(user.role);
       const status = normalizeStatus(user.status);
       const tauliahType = normalizeTauliahType(user.tauliah_type);
       const phoneFormatted = formatMalaysiaPhone(user.phone || "");
+      const medals = normalizeMedals(user.medals);
 
       const matchSearch =
         !keyword ||
         (user.full_name || "").toLowerCase().includes(keyword) ||
         (user.email || "").toLowerCase().includes(keyword) ||
         (user.role || "").toLowerCase().includes(keyword) ||
-        (user.group_name || "").toLowerCase().includes(keyword) ||
+        liveGroupName.toLowerCase().includes(keyword) ||
         (user.tauliah_no || "").toLowerCase().includes(keyword) ||
-        (user.certificate_no || "").toLowerCase().includes(keyword) ||
-        (user.medal_no || "").toLowerCase().includes(keyword) ||
+        medals.some(
+          (medal) =>
+            medal.name.toLowerCase().includes(keyword) ||
+            medal.date.toLowerCase().includes(keyword) ||
+            medal.serial_no.toLowerCase().includes(keyword)
+        ) ||
         (user.phone || "").includes(cleanKeyword) ||
         phoneFormatted.toLowerCase().includes(keyword);
 
@@ -387,16 +454,25 @@ export default function UserManagementPage() {
         statusFilter === "Semua Status" || status === statusFilter;
 
       const matchGroup =
-        groupFilter === "Semua Kumpulan" || user.group_name === groupFilter;
+        groupFilter === "Semua Kumpulan" ||
+        user.group_id === groupFilter ||
+        liveGroupName === groupFilter;
 
       const matchTauliah =
         tauliahFilter === "Semua Tauliah" || tauliahType === tauliahFilter;
 
-      return (
-        matchSearch && matchRole && matchStatus && matchGroup && matchTauliah
-      );
+      return matchSearch && matchRole && matchStatus && matchGroup && matchTauliah;
     });
-  }, [users, search, roleFilter, statusFilter, groupFilter, tauliahFilter]);
+  }, [
+    users,
+    groups,
+    groupNameById,
+    search,
+    roleFilter,
+    statusFilter,
+    groupFilter,
+    tauliahFilter,
+  ]);
 
   const userStats = useMemo(() => {
     return {
@@ -414,6 +490,7 @@ export default function UserManagementPage() {
 
   function resetForm() {
     setEditingUser(null);
+    setConfirmRemoveMedalIndex(null);
 
     setForm({
       full_name: "",
@@ -430,8 +507,7 @@ export default function UserManagementPage() {
       tauliah_no: "",
       tauliah_date: "",
       tauliah_status: "Tiada",
-      certificate_no: "",
-      medal_no: "",
+      medals: [],
     });
   }
 
@@ -444,6 +520,7 @@ export default function UserManagementPage() {
     }
 
     resetForm();
+    setConfirmRemoveMedalIndex(null);
     setShowUserModal(true);
   }
 
@@ -457,6 +534,7 @@ export default function UserManagementPage() {
     const tauliahType = normalizeTauliahType(user.tauliah_type);
 
     setEditingUser(user);
+    setConfirmRemoveMedalIndex(null);
 
     setForm({
       full_name: user.full_name || "",
@@ -465,7 +543,7 @@ export default function UserManagementPage() {
       role,
       district: user.district || district,
       group_id: user.group_id || "",
-      group_name: user.group_name || "",
+      group_name: getLiveGroupName(user) === "-" ? "" : getLiveGroupName(user),
       status: normalizeStatus(user.status),
       password: "",
       notes: user.notes || "",
@@ -476,8 +554,7 @@ export default function UserManagementPage() {
         tauliahType === "Tiada"
           ? "Tiada"
           : normalizeTauliahStatus(user.tauliah_status),
-      certificate_no: user.certificate_no || "",
-      medal_no: user.medal_no || "",
+      medals: normalizeMedals(user.medals),
     });
 
     setShowUserModal(true);
@@ -489,7 +566,6 @@ export default function UserManagementPage() {
   }
 
   async function checkDuplicateEmail(email: string, ignoreUserId?: string) {
-    // Email login patut unik seluruh sistem.
     let query = supabase
       .from("system_users")
       .select("id")
@@ -580,6 +656,24 @@ export default function UserManagementPage() {
       }
     }
 
+    const medalRows = form.medals.filter(
+      (medal) => medal.name.trim() || medal.date || medal.serial_no.trim()
+    );
+
+    for (let index = 0; index < medalRows.length; index += 1) {
+      const medal = medalRows[index];
+
+      if (!medal.name.trim()) {
+        alert(`Sila isi Nama Pingat untuk pingat #${index + 1}.`);
+        return false;
+      }
+
+      if (!medal.date) {
+        alert(`Sila pilih Tarikh Pingat untuk pingat #${index + 1}.`);
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -599,8 +693,8 @@ export default function UserManagementPage() {
       nextForm.tauliah_no = "";
       nextForm.tauliah_date = "";
       nextForm.tauliah_status = "Tiada";
-      nextForm.certificate_no = "";
-      nextForm.medal_no = "";
+      nextForm.medals = [];
+      setConfirmRemoveMedalIndex(null);
     }
 
     setForm(nextForm);
@@ -643,6 +737,19 @@ export default function UserManagementPage() {
     const isTauliahRole = roleRequiresTauliah(form.role);
     const hasTauliah = isTauliahRole && form.tauliah_type !== "Tiada";
 
+    const cleanMedals = isTauliahRole
+      ? form.medals
+          .filter(
+            (medal) =>
+              medal.name.trim() || medal.date || medal.serial_no.trim()
+          )
+          .map((medal) => ({
+            name: medal.name.trim(),
+            date: medal.date,
+            serial_no: medal.serial_no.trim(),
+          }))
+      : [];
+
     const payload: Record<string, any> = {
       full_name: form.full_name.trim(),
       email: form.email.trim().toLowerCase(),
@@ -660,12 +767,9 @@ export default function UserManagementPage() {
       tauliah_no: hasTauliah ? form.tauliah_no.trim() : null,
       tauliah_date: hasTauliah ? form.tauliah_date : null,
       tauliah_status: hasTauliah ? "Ada" : "Tiada",
-      certificate_no:
-        isTauliahRole && form.certificate_no.trim()
-          ? form.certificate_no.trim()
-          : null,
-      medal_no:
-        isTauliahRole && form.medal_no.trim() ? form.medal_no.trim() : null,
+      medals: cleanMedals,
+      certificate_no: null,
+      medal_no: null,
       updated_at: new Date().toISOString(),
     };
 
@@ -853,7 +957,7 @@ export default function UserManagementPage() {
               >
                 <option>Semua Kumpulan</option>
                 {groups.map((group) => (
-                  <option key={group.id} value={group.group_name}>
+                  <option key={group.id} value={group.id}>
                     {group.group_name}
                   </option>
                 ))}
@@ -914,7 +1018,7 @@ export default function UserManagementPage() {
                 <th className="px-4 py-3">Kumpulan</th>
                 <th className="px-4 py-3">Telefon</th>
                 <th className="px-4 py-3">Tauliah</th>
-                <th className="px-4 py-3">Sijil / Pingat</th>
+                <th className="px-4 py-3">Pingat</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-end">Tindakan</th>
               </tr>
@@ -943,6 +1047,7 @@ export default function UserManagementPage() {
                   const role = normalizeRole(user.role);
                   const tauliahType = normalizeTauliahType(user.tauliah_type);
                   const status = normalizeStatus(user.status);
+                  const medals = normalizeMedals(user.medals);
 
                   return (
                     <tr key={user.id}>
@@ -969,8 +1074,8 @@ export default function UserManagementPage() {
                       </td>
 
                       <td className="px-4 py-3">
-                        {user.group_name ? (
-                          <span>{user.group_name}</span>
+                        {getLiveGroupName(user) !== "-" ? (
+                          <span>{getLiveGroupName(user)}</span>
                         ) : (
                           <span className="text-muted">-</span>
                         )}
@@ -1001,17 +1106,26 @@ export default function UserManagementPage() {
                       </td>
 
                       <td className="px-4 py-3">
-                        <div className="small">
-                          <div className="d-flex align-items-center gap-2 mb-1">
-                            <i className="bi bi-award text-success"></i>
-                            <span>{user.certificate_no || "Tiada sijil"}</span>
-                          </div>
+                        {medals.length === 0 ? (
+                          <span className="small text-muted">Tiada pingat</span>
+                        ) : (
+                          <div className="small">
+                            <div className="d-flex align-items-center gap-2 mb-1">
+                              <i className="bi bi-award text-warning"></i>
+                              <span className="fw-semibold">
+                                {medals.length} pingat
+                              </span>
+                            </div>
 
-                          <div className="d-flex align-items-center gap-2 text-muted">
-                            <i className="bi bi-star text-warning"></i>
-                            <span>{user.medal_no || "Tiada pingat"}</span>
+                            <div className="text-muted">
+                              {medals
+                                .slice(0, 2)
+                                .map((medal) => medal.name)
+                                .join(", ")}
+                              {medals.length > 2 ? "..." : ""}
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </td>
 
                       <td className="px-4 py-3">
@@ -1189,9 +1303,6 @@ export default function UserManagementPage() {
                                 {groups.map((group) => (
                                   <option key={group.id} value={group.id}>
                                     {group.group_name}
-                                    {group.school_name
-                                      ? ` — ${group.school_name}`
-                                      : ""}
                                   </option>
                                 ))}
                               </select>
@@ -1259,7 +1370,7 @@ export default function UserManagementPage() {
                                 Maklumat Tauliah & Pengiktirafan
                               </h6>
                               <small className="text-muted">
-                                Rekod tauliah, sijil dan pingat untuk pemimpin /
+                                Rekod tauliah dan pingat untuk pemimpin /
                                 pegawai.
                               </small>
                             </div>
@@ -1350,36 +1461,231 @@ export default function UserManagementPage() {
                               </small>
                             </div>
 
-                            <div className="col-md-4">
-                              <label className="form-label">No Sijil</label>
-                              <input
-                                className="form-control"
-                                value={form.certificate_no}
-                                onChange={(e) =>
-                                  setForm({
-                                    ...form,
-                                    certificate_no: e.target.value,
-                                  })
-                                }
-                                placeholder="SIJIL-001"
-                                disabled={saving}
-                              />
-                            </div>
+                            <div className="col-12 mt-2">
+                              <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+                                <div>
+                                  <label className="form-label mb-0 fw-semibold">
+                                    Senarai Pingat
+                                  </label>
+                                  <div className="small text-muted">
+                                    Tambah satu atau lebih pingat. No Siri tidak
+                                    wajib.
+                                  </div>
+                                </div>
 
-                            <div className="col-md-4">
-                              <label className="form-label">No Pingat</label>
-                              <input
-                                className="form-control"
-                                value={form.medal_no}
-                                onChange={(e) =>
-                                  setForm({
-                                    ...form,
-                                    medal_no: e.target.value,
-                                  })
-                                }
-                                placeholder="PGT-001"
-                                disabled={saving}
-                              />
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-success"
+                                  onClick={() => {
+                                    setConfirmRemoveMedalIndex(null);
+                                    setForm({
+                                      ...form,
+                                      medals: [...form.medals, emptyMedal()],
+                                    });
+                                  }}
+                                  disabled={saving}
+                                >
+                                  <i className="bi bi-plus-circle me-1"></i>
+                                  Tambah Pingat
+                                </button>
+                              </div>
+
+                              {form.medals.length === 0 ? (
+                                <div className="border rounded-4 p-4 text-center bg-light">
+                                  <i className="bi bi-award text-muted fs-2 d-block mb-2"></i>
+                                  <div className="fw-semibold">
+                                    Belum ada pingat direkodkan
+                                  </div>
+                                  <div className="small text-muted">
+                                    Tekan butang Tambah Pingat untuk masukkan
+                                    maklumat pingat.
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="d-flex flex-column gap-3">
+                                  {form.medals.map((medal, index) => {
+                                    const isConfirmingRemove =
+                                      confirmRemoveMedalIndex === index;
+
+                                    return (
+                                      <div
+                                        className={`border rounded-4 p-3 ${
+                                          isConfirmingRemove
+                                            ? "bg-danger-subtle border-danger"
+                                            : "bg-white"
+                                        }`}
+                                        key={index}
+                                      >
+                                        <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+                                          <div className="d-flex align-items-center gap-2">
+                                            <div
+                                              className={`rounded-circle d-flex align-items-center justify-content-center ${
+                                                isConfirmingRemove
+                                                  ? "bg-danger text-white"
+                                                  : "bg-warning-subtle text-warning"
+                                              }`}
+                                              style={{ width: 38, height: 38 }}
+                                            >
+                                              <i
+                                                className={`bi ${
+                                                  isConfirmingRemove
+                                                    ? "bi-exclamation-triangle"
+                                                    : "bi-award"
+                                                }`}
+                                              ></i>
+                                            </div>
+
+                                            <div>
+                                              <strong>Pingat #{index + 1}</strong>
+                                              <div className="small text-muted">
+                                                {medal.name ||
+                                                  "Nama pingat belum diisi"}
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {!isConfirmingRemove ? (
+                                            <button
+                                              type="button"
+                                              className="btn btn-sm btn-outline-danger rounded-circle d-inline-flex align-items-center justify-content-center"
+                                              style={{ width: 34, height: 34 }}
+                                              onClick={() => setConfirmRemoveMedalIndex(index)}
+                                              disabled={saving}
+                                              title="Buang pingat"
+                                              aria-label="Buang pingat"
+                                            >
+                                              <i className="bi bi-trash"></i>
+                                            </button>
+                                          ) : (
+                                            <div className="d-flex flex-wrap gap-2 align-items-center">
+                                              <span className="small fw-semibold text-danger">
+                                                Buang pingat ini?
+                                              </span>
+
+                                              <button
+                                                type="button"
+                                                className="btn btn-sm btn-danger rounded-circle d-inline-flex align-items-center justify-content-center"
+                                                style={{ width: 34, height: 34 }}
+                                                onClick={() => {
+                                                  setForm({
+                                                    ...form,
+                                                    medals: form.medals.filter(
+                                                      (_, medalIndex) => medalIndex !== index
+                                                    ),
+                                                  });
+                                                  setConfirmRemoveMedalIndex(null);
+                                                }}
+                                                disabled={saving}
+                                                title="Ya, buang pingat"
+                                                aria-label="Ya, buang pingat"
+                                              >
+                                                <i className="bi bi-check-lg"></i>
+                                              </button>
+
+                                              <button
+                                                type="button"
+                                                className="btn btn-sm btn-light border rounded-circle d-inline-flex align-items-center justify-content-center"
+                                                style={{ width: 34, height: 34 }}
+                                                onClick={() => setConfirmRemoveMedalIndex(null)}
+                                                disabled={saving}
+                                                title="Batal"
+                                                aria-label="Batal"
+                                              >
+                                                <i className="bi bi-x-lg"></i>
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {!isConfirmingRemove && (
+                                          <div className="row g-3">
+                                            <div className="col-md-5">
+                                              <label className="form-label">
+                                                Nama Pingat
+                                              </label>
+                                              <input
+                                                className="form-control"
+                                                value={medal.name}
+                                                onChange={(e) => {
+                                                  const nextMedals = [
+                                                    ...form.medals,
+                                                  ];
+
+                                                  nextMedals[index] = {
+                                                    ...nextMedals[index],
+                                                    name: e.target.value,
+                                                  };
+
+                                                  setForm({
+                                                    ...form,
+                                                    medals: nextMedals,
+                                                  });
+                                                }}
+                                                placeholder="Contoh: Pingat Usaha"
+                                                disabled={saving}
+                                              />
+                                            </div>
+
+                                            <div className="col-md-4">
+                                              <label className="form-label">
+                                                Tarikh Pingat
+                                              </label>
+                                              <input
+                                                type="date"
+                                                className="form-control"
+                                                value={medal.date}
+                                                onChange={(e) => {
+                                                  const nextMedals = [
+                                                    ...form.medals,
+                                                  ];
+
+                                                  nextMedals[index] = {
+                                                    ...nextMedals[index],
+                                                    date: e.target.value,
+                                                  };
+
+                                                  setForm({
+                                                    ...form,
+                                                    medals: nextMedals,
+                                                  });
+                                                }}
+                                                disabled={saving}
+                                              />
+                                            </div>
+
+                                            <div className="col-md-3">
+                                              <label className="form-label">
+                                                No Siri
+                                              </label>
+                                              <input
+                                                className="form-control"
+                                                value={medal.serial_no}
+                                                onChange={(e) => {
+                                                  const nextMedals = [
+                                                    ...form.medals,
+                                                  ];
+
+                                                  nextMedals[index] = {
+                                                    ...nextMedals[index],
+                                                    serial_no: e.target.value,
+                                                  };
+
+                                                  setForm({
+                                                    ...form,
+                                                    medals: nextMedals,
+                                                  });
+                                                }}
+                                                placeholder="Optional"
+                                                disabled={saving}
+                                              />
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -1471,12 +1777,20 @@ export default function UserManagementPage() {
                               </div>
 
                               <div className="d-flex justify-content-between">
-                                <span>Sijil / Pingat</span>
-                                <strong>
-                                  {form.certificate_no || "-"} /{" "}
-                                  {form.medal_no || "-"}
-                                </strong>
+                                <span>Pingat</span>
+                                <strong>{form.medals.length} pingat</strong>
                               </div>
+
+                              {form.medals.length > 0 && (
+                                <div className="small text-muted mt-2">
+                                  {form.medals
+                                    .filter((medal) => medal.name.trim())
+                                    .slice(0, 3)
+                                    .map((medal) => medal.name)
+                                    .join(", ")}
+                                  {form.medals.length > 3 ? "..." : ""}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1579,7 +1893,7 @@ export default function UserManagementPage() {
                   <div className="col-md-6">
                     <div className="border rounded-4 p-3 h-100">
                       <small className="text-muted d-block">Kumpulan</small>
-                      <strong>{selectedUser.group_name || "-"}</strong>
+                      <strong>{getLiveGroupName(selectedUser)}</strong>
                     </div>
                   </div>
 
@@ -1627,19 +1941,37 @@ export default function UserManagementPage() {
                         </div>
                       </div>
 
-                      <div className="col-md-6">
+                      <div className="col-12">
                         <div className="border rounded-4 p-3 h-100">
-                          <small className="text-muted d-block">No Sijil</small>
-                          <strong>{selectedUser.certificate_no || "-"}</strong>
-                        </div>
-                      </div>
-
-                      <div className="col-md-6">
-                        <div className="border rounded-4 p-3 h-100">
-                          <small className="text-muted d-block">
-                            No Pingat
+                          <small className="text-muted d-block mb-2">
+                            Senarai Pingat
                           </small>
-                          <strong>{selectedUser.medal_no || "-"}</strong>
+
+                          {normalizeMedals(selectedUser.medals).length === 0 ? (
+                            <strong>-</strong>
+                          ) : (
+                            <div className="d-flex flex-column gap-2">
+                              {normalizeMedals(selectedUser.medals).map(
+                                (medal, index) => (
+                                  <div
+                                    key={index}
+                                    className="d-flex justify-content-between align-items-start border rounded-3 p-2"
+                                  >
+                                    <div>
+                                      <strong>{medal.name}</strong>
+                                      <div className="small text-muted">
+                                        Tarikh: {formatDate(medal.date)}
+                                      </div>
+                                    </div>
+
+                                    <span className="badge bg-light text-dark border">
+                                      {medal.serial_no || "Tiada No Siri"}
+                                    </span>
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </>

@@ -1,16 +1,68 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabaseClient";
 import { addAuditLog } from "../../utils/auditLog";
 
-type GroupRow = {
+const scoutDistrictsByState: Record<string, string[]> = {
+  Selangor: [
+    "Gombak",
+    "Hulu Langat",
+    "Hulu Selangor",
+    "Kajang",
+    "Klang",
+    "Kuala Langat",
+    "Kuala Selangor",
+    "Petaling Perdana",
+    "Petaling Utama",
+    "Putrajaya",
+    "Sabak Bernam",
+    "Sepang",
+    "Sungai Besar",
+    "Tanjong Karang",
+  ],
+
+  "Wilayah Persekutuan Kuala Lumpur": [
+    "Batu",
+    "Kepong",
+    "Segambut",
+    "Wangsa Maju",
+    "Setiawangsa",
+    "Titiwangsa",
+    "Bukit Bintang",
+    "Seputeh",
+    "Lembah Pantai",
+    "Bandar Tun Razak",
+    "Cheras",
+  ],
+
+  Pahang: [
+    "Bera",
+    "Bentong",
+    "Cameron Highlands",
+    "Jerantut",
+    "Kuantan",
+    "Lipis",
+    "Maran",
+    "Pekan",
+    "Raub",
+    "Rompin",
+    "Temerloh",
+  ],
+};
+
+type ScoutGroup = {
   id: string;
   group_name: string;
+  group_code: string | null;
+  registration_no: string | null;
+  registration_date: string | null;
+  scout_state: string | null;
+  scout_district: string | null;
   school_name: string | null;
   leader_user_id: string | null;
   leader_name: string | null;
-  total_members?: number | null;
+  total_members: number | null;
   status: string | null;
   district: string | null;
   district_environment_id: string | null;
@@ -19,43 +71,37 @@ type GroupRow = {
   deleted_at: string | null;
 };
 
-type UserRow = {
+type Member = {
   id: string;
-  full_name: string | null;
+  full_name: string;
   email: string | null;
-  phone: string | null;
-  role: string | null;
-  status: string | null;
   group_id: string | null;
   group_name: string | null;
-};
-
-type MemberRow = {
-  id: string;
-  full_name: string | null;
-  ic_number: string | null;
+  status: string | null;
+  category: string | null;
   scout_category: string | null;
   gender: string | null;
-  age: number | null;
-  status: string | null;
-  group_id: string | null;
-  group_name: string | null;
-};
-
-type ActivityRow = {
-  id: string;
-  activity_name: string | null;
-  activity_date: string | null;
-  location: string | null;
-  status: string | null;
-  group_id: string | null;
-  group_name: string | null;
+  ic_number: string | null;
+  created_at: string | null;
+  deleted_at: string | null;
 };
 
 type LeaderUser = {
   id: string;
   full_name: string;
   email: string | null;
+};
+
+type GroupForm = {
+  group_name: string;
+  group_code: string;
+  registration_no: string;
+  registration_date: string;
+  scout_state: string;
+  scout_district: string;
+  leader_user_id: string;
+  leader_name: string;
+  status: string;
 };
 
 function getCurrentUser() {
@@ -75,9 +121,8 @@ function normalizeStatus(status?: string | null) {
 
   if (value === "aktif" || value === "active") return "Aktif";
   if (value === "tidak aktif" || value === "inactive") return "Tidak Aktif";
-  if (value === "dibatalkan" || value === "cancelled") return "Dibatalkan";
 
-  return status || "-";
+  return status || "Aktif";
 }
 
 function isActive(status?: string | null) {
@@ -87,72 +132,131 @@ function isActive(status?: string | null) {
 function formatDate(date?: string | null) {
   if (!date) return "-";
 
-  const parsedDate = new Date(date);
+  const parsed = new Date(date);
 
-  if (Number.isNaN(parsedDate.getTime())) return "-";
+  if (Number.isNaN(parsed.getTime())) return "-";
 
-  return parsedDate.toLocaleDateString("ms-MY", {
+  return parsed.toLocaleDateString("ms-MY", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
 }
 
-export default function DistrictGroupDetailPage() {
-  const { groupId } = useParams();
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+}
+
+function getDefaultState(currentUser: any) {
+  const raw =
+    currentUser.scout_state ||
+    currentUser.state ||
+    currentUser.state_name ||
+    currentUser.negeri ||
+    "";
+
+  if (raw && scoutDistrictsByState[raw]) return raw;
+
+  return "Wilayah Persekutuan Kuala Lumpur";
+}
+
+function getDefaultScoutDistrict(currentUser: any, state: string) {
+  const raw =
+    currentUser.scout_district ||
+    currentUser.district ||
+    currentUser.district_name ||
+    currentUser.daerah ||
+    "";
+
+  if (raw && scoutDistrictsByState[state]?.includes(raw)) return raw;
+
+  return scoutDistrictsByState[state]?.[0] || "";
+}
+
+export default function GroupDetailPage() {
   const navigate = useNavigate();
+  const { groupId } = useParams();
+
+  const id = groupId || "";
 
   const currentUser = useMemo(() => getCurrentUser(), []);
 
   const districtEnvironmentId = currentUser.district_environment_id || null;
 
-  const district =
+  const userDistrict =
     currentUser.district ||
     currentUser.district_name ||
     currentUser.daerah ||
     null;
 
-  const [group, setGroup] = useState<GroupRow | null>(null);
+  const defaultState = useMemo(() => getDefaultState(currentUser), [currentUser]);
+
+  const defaultScoutDistrict = useMemo(
+    () => getDefaultScoutDistrict(currentUser, defaultState),
+    [currentUser, defaultState]
+  );
+
+  const [group, setGroup] = useState<ScoutGroup | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
   const [leaders, setLeaders] = useState<LeaderUser[]>([]);
-  const [members, setMembers] = useState<MemberRow[]>([]);
-  const [activities, setActivities] = useState<ActivityRow[]>([]);
-  const [assistants, setAssistants] = useState<UserRow[]>([]);
+
+  const [activityCount, setActivityCount] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "members" | "activities" | "assistants"
-  >("overview");
-
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<GroupForm>({
     group_name: "",
-    school_name: "",
+    group_code: "",
+    registration_no: "",
+    registration_date: "",
+    scout_state: defaultState,
+    scout_district: defaultScoutDistrict,
     leader_user_id: "",
     leader_name: "",
     status: "Aktif",
   });
 
-  useEffect(() => {
-    if (!groupId) {
-      navigate("/district/groups");
-      return;
-    }
+  const districtOptions = useMemo(() => {
+    return scoutDistrictsByState[form.scout_state] || [];
+  }, [form.scout_state]);
 
-    fetchAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId]);
+  const activeMembers = useMemo(() => {
+    return members.filter((member) => isActive(member.status));
+  }, [members]);
+
+  const inactiveMembers = useMemo(() => {
+    return members.filter((member) => !isActive(member.status));
+  }, [members]);
+
+    useEffect(() => {
+      if (!id) {
+        console.error("Route params tidak jumpa ID kumpulan:", groupId);
+        alert("ID kumpulan tidak sah. Sila semak route param untuk GroupDetailPage.");
+        navigate("/district/groups");
+        return;
+      }
+    
+      fetchAll();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id]);
 
   function applyDistrictScope(query: any) {
     if (districtEnvironmentId) {
       return query.eq("district_environment_id", districtEnvironmentId);
     }
 
-    if (district) {
-      return query.eq("district", district);
+    if (userDistrict) {
+      return query.eq("district", userDistrict);
     }
 
     return query;
@@ -162,64 +266,115 @@ export default function DistrictGroupDetailPage() {
     setLoading(true);
 
     try {
-      let groupQuery = supabase
-        .from("groups")
-        .select(
-          `
-          id,
-          group_name,
-          school_name,
-          leader_user_id,
-          leader_name,
-          total_members,
-          status,
-          district,
-          district_environment_id,
-          created_at,
-          updated_at,
-          deleted_at
-        `
-        )
-        .eq("id", groupId)
-        .is("deleted_at", null)
-        .maybeSingle();
-
-      groupQuery = applyDistrictScope(groupQuery);
-
-      const { data: groupData, error: groupError } = await groupQuery;
-
-      if (groupError) throw groupError;
-
-      if (!groupData) {
-        alert("Kumpulan tidak dijumpai atau tiada akses.");
-        navigate("/district/groups");
-        return;
-      }
-
-      const selectedGroup = groupData as GroupRow;
-
-      setGroup(selectedGroup);
-
-      setForm({
-        group_name: selectedGroup.group_name || "",
-        school_name: selectedGroup.school_name || "",
-        leader_user_id: selectedGroup.leader_user_id || "",
-        leader_name: selectedGroup.leader_name || "",
-        status: normalizeStatus(selectedGroup.status),
-      });
-
-      await Promise.all([
-        fetchLeaders(),
-        fetchMembers(selectedGroup),
-        fetchActivities(selectedGroup),
-        fetchAssistants(selectedGroup),
-      ]);
+      await Promise.all([fetchGroup(), fetchMembers(), fetchLeaders(), fetchActivities()]);
     } catch (error: any) {
-      console.error("fetchAll error:", error);
+      console.error("Fetch group detail error:", error);
       alert(error?.message || "Gagal memuatkan maklumat kumpulan.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function fetchGroup() {
+    let query = supabase
+      .from("groups")
+      .select(
+        `
+        id,
+        group_name,
+        group_code,
+        registration_no,
+        registration_date,
+        scout_state,
+        scout_district,
+        school_name,
+        leader_user_id,
+        leader_name,
+        total_members,
+        status,
+        district,
+        district_environment_id,
+        created_at,
+        updated_at,
+        deleted_at
+      `
+      )
+      .eq("id", id)
+      .is("deleted_at", null)
+      .single();
+
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+
+    const selectedGroup = data as ScoutGroup;
+
+    setGroup(selectedGroup);
+
+    const selectedScoutState =
+      selectedGroup.scout_state && scoutDistrictsByState[selectedGroup.scout_state]
+        ? selectedGroup.scout_state
+        : defaultState;
+
+    const selectedScoutDistrict =
+      selectedGroup.scout_district &&
+      scoutDistrictsByState[selectedScoutState]?.includes(selectedGroup.scout_district)
+        ? selectedGroup.scout_district
+        : scoutDistrictsByState[selectedScoutState]?.[0] || "";
+
+    setForm({
+      group_name: selectedGroup.group_name || "",
+      group_code: selectedGroup.group_code || "",
+      registration_no: selectedGroup.registration_no || "",
+      registration_date: selectedGroup.registration_date || "",
+      scout_state: selectedScoutState,
+      scout_district: selectedScoutDistrict,
+      leader_user_id: selectedGroup.leader_user_id || "",
+      leader_name: selectedGroup.leader_name || "",
+      status: normalizeStatus(selectedGroup.status),
+    });
+  }
+
+  async function fetchMembers() {
+    let query = supabase
+      .from("members")
+      .select(
+        `
+        id,
+        full_name,
+        email,
+        group_id,
+        group_name,
+        status,
+        category,
+        scout_category,
+        gender,
+        ic_number,
+        created_at,
+        deleted_at
+      `
+      )
+      .is("deleted_at", null)
+      .order("full_name", { ascending: true });
+
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+
+    const memberList = ((data || []) as Member[]).filter((member) => {
+      if (member.group_id && member.group_id === id) return true;
+      if (!member.group_id && group?.group_name && member.group_name === group.group_name) {
+        return true;
+      }
+
+      return false;
+    });
+
+    setMembers(memberList);
   }
 
   async function fetchLeaders() {
@@ -236,7 +391,7 @@ export default function DistrictGroupDetailPage() {
     const { data, error } = await query;
 
     if (error) {
-      console.warn("fetchLeaders error:", error.message);
+      console.warn("Fetch leaders warning:", error.message);
       setLeaders([]);
       return;
     }
@@ -244,241 +399,259 @@ export default function DistrictGroupDetailPage() {
     setLeaders((data || []) as LeaderUser[]);
   }
 
-  async function fetchMembers(selectedGroup: GroupRow) {
-    let queryByGroupId = supabase
-      .from("members")
-      .select(
-        `
-        id,
-        full_name,
-        ic_number,
-        scout_category,
-        gender,
-        age,
-        status,
-        group_id,
-        group_name
-      `
-      )
-      .is("deleted_at", null)
-      .order("full_name", { ascending: true });
+  async function fetchActivities() {
+    try {
+      let query = supabase
+        .from("activities")
+        .select("id")
+        .eq("group_id", id)
+        .is("deleted_at", null);
 
-    queryByGroupId = applyDistrictScope(queryByGroupId);
-    queryByGroupId = queryByGroupId.eq("group_id", selectedGroup.id);
+      query = applyDistrictScope(query);
 
-    const { data: byGroupId, error: groupIdError } = await queryByGroupId;
+      const { data, error } = await query;
 
-    if (groupIdError) {
-      console.warn("Members by group_id error:", groupIdError.message);
+      if (error) {
+        console.warn("Fetch activities warning:", error.message);
+        setActivityCount(0);
+        return;
+      }
+
+      setActivityCount((data || []).length);
+    } catch {
+      setActivityCount(0);
     }
-
-    if (byGroupId && byGroupId.length > 0) {
-      setMembers(byGroupId as MemberRow[]);
-      return;
-    }
-
-    let queryByGroupName = supabase
-      .from("members")
-      .select(
-        `
-        id,
-        full_name,
-        ic_number,
-        scout_category,
-        gender,
-        age,
-        status,
-        group_id,
-        group_name
-      `
-      )
-      .is("deleted_at", null)
-      .order("full_name", { ascending: true });
-
-    queryByGroupName = applyDistrictScope(queryByGroupName);
-    queryByGroupName = queryByGroupName.eq(
-      "group_name",
-      selectedGroup.group_name
-    );
-
-    const { data: byGroupName, error: groupNameError } = await queryByGroupName;
-
-    if (groupNameError) {
-      console.warn("Members by group_name error:", groupNameError.message);
-      setMembers([]);
-      return;
-    }
-
-    setMembers((byGroupName || []) as MemberRow[]);
   }
 
-  async function fetchActivities(selectedGroup: GroupRow) {
-    let queryByGroupId = supabase
-      .from("activities")
-      .select(
-        `
-        id,
-        activity_name,
-        activity_date,
-        location,
-        status,
-        group_id,
-        group_name
-      `
-      )
-      .is("deleted_at", null)
-      .order("activity_date", { ascending: false });
-
-    queryByGroupId = applyDistrictScope(queryByGroupId);
-    queryByGroupId = queryByGroupId.eq("group_id", selectedGroup.id);
-
-    const { data: byGroupId, error: groupIdError } = await queryByGroupId;
-
-    if (groupIdError) {
-      console.warn("Activities by group_id error:", groupIdError.message);
+  function validateForm() {
+    if (!form.group_name.trim()) {
+      alert("Sila isi nama kumpulan.");
+      return false;
     }
 
-    if (byGroupId && byGroupId.length > 0) {
-      setActivities(byGroupId as ActivityRow[]);
-      return;
+    if (!form.group_code.trim()) {
+      alert("Sila isi No Kumpulan.");
+      return false;
     }
 
-    let queryByGroupName = supabase
-      .from("activities")
-      .select(
-        `
-        id,
-        activity_name,
-        activity_date,
-        location,
-        status,
-        group_id,
-        group_name
-      `
-      )
-      .is("deleted_at", null)
-      .order("activity_date", { ascending: false });
-
-    queryByGroupName = applyDistrictScope(queryByGroupName);
-    queryByGroupName = queryByGroupName.eq(
-      "group_name",
-      selectedGroup.group_name
-    );
-
-    const { data: byGroupName, error: groupNameError } =
-      await queryByGroupName;
-
-    if (groupNameError) {
-      console.warn("Activities by group_name error:", groupNameError.message);
-      setActivities([]);
-      return;
+    if (!form.registration_no.trim()) {
+      alert("Sila isi No Pendaftaran.");
+      return false;
     }
 
-    setActivities((byGroupName || []) as ActivityRow[]);
+    if (!form.registration_date) {
+      alert("Sila pilih Tarikh Pendaftaran.");
+      return false;
+    }
+
+    if (!form.scout_state) {
+      alert("Sila pilih negeri.");
+      return false;
+    }
+
+    if (!form.scout_district) {
+      alert("Sila pilih daerah pengakap.");
+      return false;
+    }
+
+    return true;
   }
 
-  async function fetchAssistants(selectedGroup: GroupRow) {
-    let queryByGroupId = supabase
-      .from("system_users")
-      .select(
-        `
-        id,
-        full_name,
-        email,
-        phone,
-        role,
-        status,
-        group_id,
-        group_name
-      `
-      )
-      .eq("role", "Penolong Pemimpin")
+  async function checkDuplicateGroupName() {
+    let query = supabase
+      .from("groups")
+      .select("id")
+      .ilike("group_name", form.group_name.trim())
       .is("deleted_at", null)
-      .order("full_name", { ascending: true });
+      .neq("id", id)
+      .limit(1);
 
-    queryByGroupId = applyDistrictScope(queryByGroupId);
-    queryByGroupId = queryByGroupId.eq("group_id", selectedGroup.id);
+    query = applyDistrictScope(query);
 
-    const { data: byGroupId, error: groupIdError } = await queryByGroupId;
+    const { data, error } = await query;
 
-    if (groupIdError) {
-      console.warn("Assistants by group_id error:", groupIdError.message);
+    if (error) {
+      alert(error.message);
+      return true;
     }
 
-    if (byGroupId && byGroupId.length > 0) {
-      setAssistants(byGroupId as UserRow[]);
-      return;
-    }
+    return (data || []).length > 0;
+  }
 
-    let queryByGroupName = supabase
-      .from("system_users")
-      .select(
-        `
-        id,
-        full_name,
-        email,
-        phone,
-        role,
-        status,
-        group_id,
-        group_name
-      `
-      )
-      .eq("role", "Penolong Pemimpin")
+  async function checkDuplicateGroupCode() {
+    let query = supabase
+      .from("groups")
+      .select("id")
+      .ilike("group_code", form.group_code.trim())
       .is("deleted_at", null)
-      .order("full_name", { ascending: true });
+      .neq("id", id)
+      .limit(1);
 
-    queryByGroupName = applyDistrictScope(queryByGroupName);
-    queryByGroupName = queryByGroupName.eq(
-      "group_name",
-      selectedGroup.group_name
-    );
+    query = applyDistrictScope(query);
 
-    const { data: byGroupName, error: groupNameError } =
-      await queryByGroupName;
+    const { data, error } = await query;
 
-    if (groupNameError) {
-      console.warn("Assistants by group_name error:", groupNameError.message);
-      setAssistants([]);
-      return;
+    if (error) {
+      alert(error.message);
+      return true;
     }
 
-    setAssistants((byGroupName || []) as UserRow[]);
+    return (data || []).length > 0;
+  }
+
+  async function syncGroupReferences(params: {
+    groupId: string;
+    oldGroupName: string | null;
+    newGroupName: string;
+    leaderUserId: string | null;
+  }) {
+    const { groupId, oldGroupName, newGroupName, leaderUserId } = params;
+    const now = new Date().toISOString();
+
+    try {
+      let memberByGroupIdQuery = supabase
+        .from("members")
+        .update({
+          group_name: newGroupName,
+          updated_at: now,
+        })
+        .eq("group_id", groupId)
+        .is("deleted_at", null);
+
+      memberByGroupIdQuery = applyDistrictScope(memberByGroupIdQuery);
+
+      const { error } = await memberByGroupIdQuery;
+
+      if (error) {
+        console.warn("Sync members by group_id warning:", error.message);
+      }
+    } catch (error: any) {
+      console.warn("Sync members by group_id failed:", error?.message);
+    }
+
+    if (oldGroupName && oldGroupName !== newGroupName) {
+      try {
+        let memberByOldNameQuery = supabase
+          .from("members")
+          .update({
+            group_name: newGroupName,
+            updated_at: now,
+          })
+          .eq("group_name", oldGroupName)
+          .is("deleted_at", null);
+
+        memberByOldNameQuery = applyDistrictScope(memberByOldNameQuery);
+
+        const { error } = await memberByOldNameQuery;
+
+        if (error) {
+          console.warn("Sync members by old group name warning:", error.message);
+        }
+      } catch (error: any) {
+        console.warn("Sync members by old group name failed:", error?.message);
+      }
+
+      try {
+        let usersByOldNameQuery = supabase
+          .from("system_users")
+          .update({
+            group_name: newGroupName,
+            updated_at: now,
+          })
+          .eq("group_name", oldGroupName)
+          .is("deleted_at", null);
+
+        usersByOldNameQuery = applyDistrictScope(usersByOldNameQuery);
+
+        const { error } = await usersByOldNameQuery;
+
+        if (error) {
+          console.warn("Sync system_users by old group name warning:", error.message);
+        }
+      } catch (error: any) {
+        console.warn("Sync system_users by old group name failed:", error?.message);
+      }
+    }
+
+    if (leaderUserId) {
+      try {
+        let selectedLeaderQuery = supabase
+          .from("system_users")
+          .update({
+            group_name: newGroupName,
+            updated_at: now,
+          })
+          .eq("id", leaderUserId)
+          .is("deleted_at", null);
+
+        selectedLeaderQuery = applyDistrictScope(selectedLeaderQuery);
+
+        const { error } = await selectedLeaderQuery;
+
+        if (error) {
+          console.warn("Sync selected leader warning:", error.message);
+        }
+      } catch (error: any) {
+        console.warn("Sync selected leader failed:", error?.message);
+      }
+    }
   }
 
   async function saveGroup() {
-    if (!group) return;
-
-    if (!form.group_name.trim()) {
-      alert("Sila isi nama kumpulan.");
-      return;
-    }
-
-    if (!form.school_name.trim()) {
-      alert("Sila isi nama sekolah.");
-      return;
-    }
+    if (!group || !id) return;
+    if (!validateForm()) return;
 
     setSaving(true);
 
     try {
+      const duplicateName = await checkDuplicateGroupName();
+
+      if (duplicateName) {
+        alert("Nama kumpulan ini sudah wujud dalam daerah ini.");
+        setSaving(false);
+        return;
+      }
+
+      const duplicateCode = await checkDuplicateGroupCode();
+
+      if (duplicateCode) {
+        alert("No Kumpulan ini sudah wujud dalam daerah ini.");
+        setSaving(false);
+        return;
+      }
+
       const selectedLeader = leaders.find(
         (leader) => leader.id === form.leader_user_id
       );
 
+      const oldGroupName = group.group_name || null;
+
       const payload = {
         group_name: form.group_name.trim(),
-        school_name: form.school_name.trim(),
+        group_code: form.group_code.trim(),
+        registration_no: form.registration_no.trim(),
+        registration_date: form.registration_date || null,
+        scout_state: form.scout_state,
+        scout_district: form.scout_district,
+
+        // database kau school_name NOT NULL, jadi kita simpan sama dengan nama kumpulan
+        school_name: form.group_name.trim(),
+
         leader_user_id: form.leader_user_id || null,
         leader_name: selectedLeader?.full_name || form.leader_name || null,
         status: form.status,
+
+        // ini scope sebenar sistem, jangan guna dropdown daerah pengakap
+        district: group.district || userDistrict || null,
+        district_environment_id: group.district_environment_id || districtEnvironmentId || null,
+
         updated_at: new Date().toISOString(),
       };
 
       let query = supabase
         .from("groups")
         .update(payload)
-        .eq("id", group.id)
+        .eq("id", id)
         .is("deleted_at", null);
 
       query = applyDistrictScope(query);
@@ -487,38 +660,44 @@ export default function DistrictGroupDetailPage() {
 
       if (error) throw error;
 
+      await syncGroupReferences({
+        groupId: id,
+        oldGroupName,
+        newGroupName: payload.group_name,
+        leaderUserId: payload.leader_user_id,
+      });
+
       await addAuditLog(
         "UPDATE",
         "Kumpulan / Sekolah",
-        `Kemaskini kumpulan ${payload.group_name}`
+        `Kemaskini kumpulan ${oldGroupName || "-"} kepada ${payload.group_name}`
       );
+
+      alert("Kumpulan berjaya dikemaskini.");
 
       setShowEditModal(false);
       await fetchAll();
-      alert("Maklumat kumpulan berjaya dikemaskini.");
     } catch (error: any) {
-      alert(error?.message || "Gagal kemaskini kumpulan.");
+      console.error("Save group error:", error);
+      alert(error?.message || "Gagal simpan kumpulan.");
     } finally {
       setSaving(false);
     }
   }
 
   async function deactivateGroup() {
-    if (!group) return;
+    if (!group || !id) return;
 
     setSaving(true);
 
     try {
-      const payload = {
-        status: "Tidak Aktif",
-        deleted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
       let query = supabase
         .from("groups")
-        .update(payload)
-        .eq("id", group.id)
+        .update({
+          status: "Tidak Aktif",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
         .is("deleted_at", null);
 
       query = applyDistrictScope(query);
@@ -534,23 +713,23 @@ export default function DistrictGroupDetailPage() {
       );
 
       alert("Kumpulan berjaya dinyahaktifkan.");
-      navigate("/district/groups");
+
+      setShowDeactivateModal(false);
+      await fetchAll();
     } catch (error: any) {
+      console.error("Deactivate group error:", error);
       alert(error?.message || "Gagal nyahaktif kumpulan.");
     } finally {
       setSaving(false);
     }
   }
 
-  const activeMembers = members.filter((member) => isActive(member.status));
-  const inactiveMembers = members.filter((member) => !isActive(member.status));
-
   if (loading) {
     return (
       <DashboardLayout role="district">
         <div className="text-center py-5">
           <div className="spinner-border text-success"></div>
-          <p className="text-muted mt-3">Memuatkan maklumat kumpulan...</p>
+          <p className="text-muted mt-3 mb-0">Memuatkan maklumat kumpulan...</p>
         </div>
       </DashboardLayout>
     );
@@ -559,372 +738,244 @@ export default function DistrictGroupDetailPage() {
   if (!group) {
     return (
       <DashboardLayout role="district">
-        <div className="alert alert-warning">Kumpulan tidak dijumpai.</div>
+        <div className="card border-0 shadow-sm rounded-4">
+          <div className="card-body text-center py-5">
+            <i className="bi bi-exclamation-circle fs-1 text-warning"></i>
+            <h5 className="fw-bold mt-3">Kumpulan tidak dijumpai</h5>
+            <p className="text-muted">Data kumpulan mungkin telah dipadam atau tiada akses.</p>
+            <Link to="/district/groups" className="btn btn-success">
+              Kembali ke Senarai Kumpulan
+            </Link>
+          </div>
+        </div>
       </DashboardLayout>
     );
   }
 
   return (
     <DashboardLayout role="district">
-      <style>
-        {`
-          .stat-card {
-            border: 0;
-            border-radius: 1rem;
-            box-shadow: 0 0.25rem 1rem rgba(15, 23, 42, 0.06);
-          }
-
-          .tab-btn {
-            border: 0;
-            background: transparent;
-            padding: .85rem 1rem;
-            font-weight: 600;
-            color: #6b7280;
-            border-bottom: 3px solid transparent;
-          }
-
-          .tab-btn.active {
-            color: #047857;
-            border-bottom-color: #047857;
-          }
-
-          .info-box {
-            border: 1px solid #e5e7eb;
-            border-radius: 1rem;
-            padding: 1rem;
-            height: 100%;
-            background: #fff;
-          }
-        `}
-      </style>
-
       <div className="mb-4">
-        <button
-          type="button"
-          className="btn btn-link text-muted text-decoration-none p-0 mb-2"
-          onClick={() => navigate("/district/groups")}
+        <Link
+          to="/district/groups"
+          className="text-muted text-decoration-none d-inline-flex align-items-center mb-3"
         >
           <i className="bi bi-arrow-left me-1"></i>
           Kembali ke Senarai Kumpulan
-        </button>
+        </Link>
 
-        <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
+        <div className="d-flex flex-column flex-lg-row justify-content-between gap-3">
           <div>
             <h2 className="fw-bold mb-1">{group.group_name}</h2>
             <p className="text-muted mb-0">
-              {group.school_name || "-"} • {group.district || district || "-"}
+              {group.scout_state || "-"} {group.scout_district ? `• ${group.scout_district}` : ""}
             </p>
           </div>
 
-          <div className="d-flex gap-2">
+          <div className="d-flex gap-2 flex-wrap align-items-start">
             <button
               type="button"
-              className="btn btn-outline-success"
+              className="btn btn-success"
               onClick={() => setShowEditModal(true)}
             >
               <i className="bi bi-pencil-square me-1"></i>
               Edit Group
             </button>
 
-            <button
-              type="button"
-              className="btn btn-outline-danger"
-              onClick={() => setShowDeactivateModal(true)}
-            >
-              <i className="bi bi-x-circle me-1"></i>
-              Nyahaktif
-            </button>
+            {isActive(group.status) && (
+              <button
+                type="button"
+                className="btn btn-outline-danger"
+                onClick={() => setShowDeactivateModal(true)}
+              >
+                <i className="bi bi-x-circle me-1"></i>
+                Nyahaktif
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       <div className="row g-3 mb-4">
         <div className="col-md-3">
-          <div className="card stat-card">
+          <div className="card border-0 shadow-sm rounded-4">
             <div className="card-body">
-              <div className="text-muted small">Jumlah Ahli</div>
-              <div className="h3 fw-bold mb-0">{members.length}</div>
+              <small className="text-muted">Jumlah Ahli</small>
+              <h4 className="fw-bold mb-0">{members.length}</h4>
             </div>
           </div>
         </div>
 
         <div className="col-md-3">
-          <div className="card stat-card">
+          <div className="card border-0 shadow-sm rounded-4">
             <div className="card-body">
-              <div className="text-muted small">Ahli Aktif</div>
-              <div className="h3 fw-bold text-success mb-0">
-                {activeMembers.length}
+              <small className="text-muted">Ahli Aktif</small>
+              <h4 className="fw-bold text-success mb-0">{activeMembers.length}</h4>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-md-3">
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-body">
+              <small className="text-muted">Tidak Aktif</small>
+              <h4 className="fw-bold text-warning mb-0">{inactiveMembers.length}</h4>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-md-3">
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-body">
+              <small className="text-muted">Aktiviti</small>
+              <h4 className="fw-bold mb-0">{activityCount}</h4>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card border-0 shadow-sm rounded-4 mb-4">
+        <div className="card-header bg-white border-0 pt-4 px-4">
+          <h5 className="fw-bold mb-0">Ringkasan Kumpulan</h5>
+        </div>
+
+        <div className="card-body px-4">
+          <div className="row g-3">
+            <div className="col-md-6">
+              <div className="border rounded-4 p-3 h-100">
+                <small className="text-muted d-block mb-1">Nama Kumpulan</small>
+                <strong>{group.group_name}</strong>
               </div>
             </div>
-          </div>
-        </div>
 
-        <div className="col-md-3">
-          <div className="card stat-card">
-            <div className="card-body">
-              <div className="text-muted small">Tidak Aktif</div>
-              <div className="h3 fw-bold text-warning mb-0">
-                {inactiveMembers.length}
+            <div className="col-md-6">
+              <div className="border rounded-4 p-3 h-100">
+                <small className="text-muted d-block mb-1">Status</small>
+                <span
+                  className={`badge ${
+                    isActive(group.status) ? "bg-success" : "bg-secondary"
+                  }`}
+                >
+                  {normalizeStatus(group.status)}
+                </span>
               </div>
             </div>
-          </div>
-        </div>
 
-        <div className="col-md-3">
-          <div className="card stat-card">
-            <div className="card-body">
-              <div className="text-muted small">Aktiviti</div>
-              <div className="h3 fw-bold mb-0">{activities.length}</div>
+            <div className="col-md-6">
+              <div className="border rounded-4 p-3 h-100">
+                <small className="text-muted d-block mb-1">No Kumpulan</small>
+                <strong>{group.group_code || "-"}</strong>
+              </div>
+            </div>
+
+            <div className="col-md-6">
+              <div className="border rounded-4 p-3 h-100">
+                <small className="text-muted d-block mb-1">No Pendaftaran</small>
+                <strong>{group.registration_no || "-"}</strong>
+              </div>
+            </div>
+
+            <div className="col-md-6">
+              <div className="border rounded-4 p-3 h-100">
+                <small className="text-muted d-block mb-1">Tarikh Pendaftaran</small>
+                <strong>{formatDate(group.registration_date)}</strong>
+              </div>
+            </div>
+
+            <div className="col-md-6">
+              <div className="border rounded-4 p-3 h-100">
+                <small className="text-muted d-block mb-1">Negeri / Daerah Pengakap</small>
+                <strong>
+                  {group.scout_state || "-"} {group.scout_district ? `• ${group.scout_district}` : ""}
+                </strong>
+              </div>
+            </div>
+
+            <div className="col-md-6">
+              <div className="border rounded-4 p-3 h-100">
+                <small className="text-muted d-block mb-1">Pemimpin Kumpulan</small>
+                <strong>{group.leader_name || "-"}</strong>
+              </div>
+            </div>
+
+            <div className="col-md-6">
+              <div className="border rounded-4 p-3 h-100">
+                <small className="text-muted d-block mb-1">Tarikh Dicipta</small>
+                <strong>{formatDate(group.created_at)}</strong>
+              </div>
+            </div>
+
+            <div className="col-12">
+              <div className="border rounded-4 p-3 h-100">
+                <small className="text-muted d-block mb-1">District Environment ID</small>
+                <strong>{group.district_environment_id || "-"}</strong>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <div className="card border-0 shadow-sm rounded-4">
-        <div className="card-body p-0">
-          <div className="d-flex flex-wrap px-3 border-bottom">
-            <button
-              type="button"
-              className={`tab-btn ${activeTab === "overview" ? "active" : ""}`}
-              onClick={() => setActiveTab("overview")}
-            >
-              Ringkasan
-            </button>
+        <div className="card-header bg-white border-0 pt-4 px-4">
+          <h5 className="fw-bold mb-0">Senarai Ahli Kumpulan</h5>
+        </div>
 
-            <button
-              type="button"
-              className={`tab-btn ${activeTab === "members" ? "active" : ""}`}
-              onClick={() => setActiveTab("members")}
-            >
-              Ahli ({members.length})
-            </button>
+        <div className="card-body table-responsive px-4">
+          <table className="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Nama</th>
+                <th>No IC / MyKid</th>
+                <th>Kategori</th>
+                <th>Jantina</th>
+                <th>Status</th>
+              </tr>
+            </thead>
 
-            <button
-              type="button"
-              className={`tab-btn ${
-                activeTab === "activities" ? "active" : ""
-              }`}
-              onClick={() => setActiveTab("activities")}
-            >
-              Aktiviti ({activities.length})
-            </button>
+            <tbody>
+              {members.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="text-center text-muted py-5">
+                    <i className="bi bi-inbox fs-1 d-block mb-2"></i>
+                    Tiada ahli dalam kumpulan ini.
+                  </td>
+                </tr>
+              ) : (
+                members.map((member) => (
+                  <tr key={member.id}>
+                    <td>
+                      <div className="d-flex align-items-center gap-2">
+                        <div
+                          className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold"
+                          style={{ width: 36, height: 36 }}
+                        >
+                          {getInitials(member.full_name || "-")}
+                        </div>
 
-            <button
-              type="button"
-              className={`tab-btn ${
-                activeTab === "assistants" ? "active" : ""
-              }`}
-              onClick={() => setActiveTab("assistants")}
-            >
-              Penolong Pemimpin ({assistants.length})
-            </button>
-          </div>
+                        <div>
+                          <div className="fw-semibold">{member.full_name}</div>
+                          <small className="text-muted">{member.email || "-"}</small>
+                        </div>
+                      </div>
+                    </td>
 
-          <div className="p-4">
-            {activeTab === "overview" && (
-              <div className="row g-3">
-                <div className="col-md-6">
-                  <div className="info-box">
-                    <div className="text-muted small mb-1">Nama Kumpulan</div>
-                    <div className="fw-semibold">{group.group_name}</div>
-                  </div>
-                </div>
+                    <td>{member.ic_number || "-"}</td>
+                    <td>{member.category || member.scout_category || "-"}</td>
+                    <td>{member.gender || "-"}</td>
 
-                <div className="col-md-6">
-                  <div className="info-box">
-                    <div className="text-muted small mb-1">
-                      Sekolah / Institusi
-                    </div>
-                    <div className="fw-semibold">
-                      {group.school_name || "-"}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="col-md-6">
-                  <div className="info-box">
-                    <div className="text-muted small mb-1">
-                      Pemimpin Kumpulan
-                    </div>
-                    <div className="fw-semibold">
-                      {group.leader_name || "Belum ditetapkan"}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="col-md-6">
-                  <div className="info-box">
-                    <div className="text-muted small mb-1">Status</div>
-                    <span
-                      className={`badge ${
-                        isActive(group.status)
-                          ? "bg-success-subtle text-success"
-                          : "bg-warning-subtle text-warning"
-                      }`}
-                    >
-                      {normalizeStatus(group.status)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="col-md-6">
-                  <div className="info-box">
-                    <div className="text-muted small mb-1">Tarikh Dicipta</div>
-                    <div className="fw-semibold">
-                      {formatDate(group.created_at)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="col-md-6">
-                  <div className="info-box">
-                    <div className="text-muted small mb-1">
-                      District Environment ID
-                    </div>
-                    <div className="fw-semibold small text-break">
-                      {group.district_environment_id ||
-                        districtEnvironmentId ||
-                        "-"}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === "members" && (
-              <div className="table-responsive">
-                <table className="table table-hover align-middle">
-                  <thead>
-                    <tr>
-                      <th>Nama</th>
-                      <th>Kategori</th>
-                      <th>Jantina</th>
-                      <th>Umur</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {members.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="text-center text-muted py-4">
-                          Tiada ahli dalam kumpulan ini.
-                        </td>
-                      </tr>
-                    ) : (
-                      members.map((member) => (
-                        <tr key={member.id}>
-                          <td className="fw-semibold">
-                            {member.full_name || "-"}
-                          </td>
-                          <td>{member.scout_category || "-"}</td>
-                          <td>{member.gender || "-"}</td>
-                          <td>{member.age ?? "-"}</td>
-                          <td>
-                            <span
-                              className={`badge ${
-                                isActive(member.status)
-                                  ? "bg-success-subtle text-success"
-                                  : "bg-secondary-subtle text-secondary"
-                              }`}
-                            >
-                              {normalizeStatus(member.status)}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {activeTab === "activities" && (
-              <div className="table-responsive">
-                <table className="table table-hover align-middle">
-                  <thead>
-                    <tr>
-                      <th>Aktiviti</th>
-                      <th>Tarikh</th>
-                      <th>Lokasi</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {activities.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="text-center text-muted py-4">
-                          Tiada aktiviti untuk kumpulan ini.
-                        </td>
-                      </tr>
-                    ) : (
-                      activities.map((activity) => (
-                        <tr key={activity.id}>
-                          <td className="fw-semibold">
-                            {activity.activity_name || "-"}
-                          </td>
-                          <td>{formatDate(activity.activity_date)}</td>
-                          <td>{activity.location || "-"}</td>
-                          <td>
-                            <span className="badge bg-primary">
-                              {normalizeStatus(activity.status)}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {activeTab === "assistants" && (
-              <div className="table-responsive">
-                <table className="table table-hover align-middle">
-                  <thead>
-                    <tr>
-                      <th>Nama</th>
-                      <th>Email</th>
-                      <th>Telefon</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {assistants.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="text-center text-muted py-4">
-                          Belum ada Penolong Pemimpin dalam kumpulan ini.
-                        </td>
-                      </tr>
-                    ) : (
-                      assistants.map((assistant) => (
-                        <tr key={assistant.id}>
-                          <td className="fw-semibold">
-                            {assistant.full_name || "-"}
-                          </td>
-                          <td>{assistant.email || "-"}</td>
-                          <td>{assistant.phone || "-"}</td>
-                          <td>
-                            <span
-                              className={`badge ${
-                                isActive(assistant.status)
-                                  ? "bg-success-subtle text-success"
-                                  : "bg-secondary-subtle text-secondary"
-                              }`}
-                            >
-                              {normalizeStatus(assistant.status)}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                    <td>
+                      <span
+                        className={`badge ${
+                          isActive(member.status) ? "bg-success" : "bg-secondary"
+                        }`}
+                      >
+                        {normalizeStatus(member.status)}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -962,15 +1013,85 @@ export default function DistrictGroupDetailPage() {
                   </div>
 
                   <div className="col-md-6">
-                    <label className="form-label">Nama Sekolah</label>
+                    <label className="form-label">No Kumpulan</label>
                     <input
                       className="form-control"
-                      value={form.school_name}
+                      value={form.group_code}
                       onChange={(event) =>
-                        setForm({ ...form, school_name: event.target.value })
+                        setForm({ ...form, group_code: event.target.value })
+                      }
+                      placeholder="Contoh: KP-001"
+                      disabled={saving}
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">No Pendaftaran</label>
+                    <input
+                      className="form-control"
+                      value={form.registration_no}
+                      onChange={(event) =>
+                        setForm({ ...form, registration_no: event.target.value })
+                      }
+                      placeholder="Contoh: MY-SCT-2026-001"
+                      disabled={saving}
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Tarikh Pendaftaran</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={form.registration_date}
+                      onChange={(event) =>
+                        setForm({ ...form, registration_date: event.target.value })
                       }
                       disabled={saving}
                     />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Negeri</label>
+                    <select
+                      className="form-select"
+                      value={form.scout_state}
+                      onChange={(event) => {
+                        const newState = event.target.value;
+                        const firstDistrict = scoutDistrictsByState[newState]?.[0] || "";
+
+                        setForm({
+                          ...form,
+                          scout_state: newState,
+                          scout_district: firstDistrict,
+                        });
+                      }}
+                      disabled={saving}
+                    >
+                      {Object.keys(scoutDistrictsByState).map((state) => (
+                        <option key={state} value={state}>
+                          {state}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Daerah Pengakap</label>
+                    <select
+                      className="form-select"
+                      value={form.scout_district}
+                      onChange={(event) =>
+                        setForm({ ...form, scout_district: event.target.value })
+                      }
+                      disabled={saving}
+                    >
+                      {districtOptions.map((districtName) => (
+                        <option key={districtName} value={districtName}>
+                          {districtName}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="col-md-6">
@@ -991,7 +1112,7 @@ export default function DistrictGroupDetailPage() {
                       }}
                       disabled={saving}
                     >
-                      <option value="">Pilih Pemimpin</option>
+                      <option value="">Pilih Pemimpin Kumpulan</option>
 
                       {leaders.map((leader) => (
                         <option key={leader.id} value={leader.id}>
@@ -1000,6 +1121,12 @@ export default function DistrictGroupDetailPage() {
                         </option>
                       ))}
                     </select>
+
+                    {leaders.length === 0 && (
+                      <small className="text-muted">
+                        Tiada Pemimpin Kumpulan aktif dalam daerah ini.
+                      </small>
+                    )}
                   </div>
 
                   <div className="col-md-6">
@@ -1012,8 +1139,8 @@ export default function DistrictGroupDetailPage() {
                       }
                       disabled={saving}
                     >
-                      <option>Aktif</option>
-                      <option>Tidak Aktif</option>
+                      <option value="Aktif">Aktif</option>
+                      <option value="Tidak Aktif">Tidak Aktif</option>
                     </select>
                   </div>
                 </div>
@@ -1052,9 +1179,7 @@ export default function DistrictGroupDetailPage() {
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
-                <h5 className="modal-title fw-bold text-danger">
-                  Nyahaktif Kumpulan
-                </h5>
+                <h5 className="modal-title fw-bold text-danger">Nyahaktif Kumpulan</h5>
 
                 <button
                   type="button"
@@ -1065,15 +1190,10 @@ export default function DistrictGroupDetailPage() {
               </div>
 
               <div className="modal-body">
-                <p className="mb-1">
-                  Adakah anda pasti mahu nyahaktif kumpulan ini?
-                </p>
-
+                <p className="mb-1">Adakah anda pasti mahu nyahaktifkan kumpulan ini?</p>
                 <strong>{group.group_name}</strong>
-
                 <p className="text-muted small mt-2 mb-0">
-                  Data tidak dipadam kekal. Sistem akan set status Tidak Aktif
-                  dan isi deleted_at.
+                  Rekod tidak dipadam. Status kumpulan akan ditukar kepada Tidak Aktif.
                 </p>
               </div>
 
