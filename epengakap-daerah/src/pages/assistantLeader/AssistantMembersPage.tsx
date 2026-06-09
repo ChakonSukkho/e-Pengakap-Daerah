@@ -12,6 +12,10 @@ type Member = {
   group_name?: string | null;
   category?: string | null;
   scout_category?: string | null;
+  unit_pengakap?: string | null;
+  race?: string | null;
+  birth_date?: string | null;
+  wosm_no?: string | null;
   age?: number | null;
   gender?: string | null;
   guardian_name?: string | null;
@@ -55,6 +59,7 @@ type CurrentUser = {
 
 const STATUS_OPTIONS = ["Aktif", "Tidak Aktif"];
 const GENDER_OPTIONS = ["Lelaki", "Perempuan"];
+
 const CATEGORY_OPTIONS = [
   "Pengakap Kanak-Kanak",
   "Pengakap Muda",
@@ -95,6 +100,7 @@ function normalizeStatus(status?: string | null) {
 
 function getCategory(member?: Member | null) {
   return (
+    member?.unit_pengakap ||
     member?.scout_category ||
     member?.category ||
     "Tidak Ditetapkan"
@@ -138,7 +144,18 @@ function isValidMalaysiaPhone(value: string) {
 }
 
 function cleanIc(value: string) {
-  return value.replace(/\D/g, "").slice(0, 12);
+  const raw = String(value || "").trim().replace(/^'/, "");
+
+  // Handle Excel scientific notation, contoh: 1.11128E+11
+  if (/^\d+(\.\d+)?e\+?\d+$/i.test(raw)) {
+    const numeric = Number(raw);
+
+    if (!Number.isNaN(numeric)) {
+      return numeric.toFixed(0).replace(/\D/g, "").slice(0, 12);
+    }
+  }
+
+  return raw.replace(/\D/g, "").slice(0, 12);
 }
 
 function formatIc(value: string) {
@@ -163,6 +180,287 @@ function formatDate(value?: string | null) {
     month: "short",
     year: "numeric",
   });
+}
+
+function normalizeHeader(value: string) {
+  return String(value || "")
+    .replace(/\ufeff/g, "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+}
+
+function splitCsvLine(line: string, delimiter: string) {
+  const result: string[] = [];
+  let current = "";
+  let insideQuote = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    const next = line[i + 1];
+
+    if (char === '"' && insideQuote && next === '"') {
+      current += '"';
+      i++;
+      continue;
+    }
+
+    if (char === '"') {
+      insideQuote = !insideQuote;
+      continue;
+    }
+
+    if (char === delimiter && !insideQuote) {
+      result.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  result.push(current.trim());
+  return result;
+}
+
+function detectDelimiter(text: string) {
+  const sample = text.split(/\r?\n/).slice(0, 10).join("\n");
+  const delimiters = [",", ";", "\t"];
+
+  let bestDelimiter = ",";
+  let bestCount = 0;
+
+  delimiters.forEach((delimiter) => {
+    const escapedDelimiter = delimiter === "\t" ? "\\t" : delimiter;
+    const count = (sample.match(new RegExp(escapedDelimiter, "g")) || [])
+      .length;
+
+    if (count > bestCount) {
+      bestCount = count;
+      bestDelimiter = delimiter;
+    }
+  });
+
+  return bestDelimiter;
+}
+
+function parseCsvText(text: string) {
+  const delimiter = detectDelimiter(text);
+
+  const lines = text
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const expectedHeaders = [
+    "NAMA PENUH",
+    "NO. K.P.",
+    "JANTINA",
+    "KETURUNAN",
+    "TARIKH LAHIR",
+    "UNIT PENGAKAP",
+    "NO. WOSM",
+    "EMAIL",
+  ];
+
+  let headerIndex = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const normalizedLine = normalizeHeader(lines[i]);
+
+    const matchCount = expectedHeaders.filter((header) =>
+      normalizedLine.includes(header)
+    ).length;
+
+    if (matchCount >= 2) {
+      headerIndex = i;
+      break;
+    }
+  }
+
+  if (headerIndex === -1) {
+    throw new Error("Header CSV tidak dijumpai. Sila guna template rasmi.");
+  }
+
+  const headers = splitCsvLine(lines[headerIndex], delimiter).map(
+    normalizeHeader
+  );
+
+  return lines.slice(headerIndex + 1).map((line) => {
+    const values = splitCsvLine(line, delimiter);
+    const record: Record<string, string> = {};
+
+    headers.forEach((header, index) => {
+      record[header] = values[index]?.trim() || "";
+    });
+
+    return record;
+  });
+}
+
+function getCsvValue(row: Record<string, string>, possibleHeaders: string[]) {
+  for (const header of possibleHeaders) {
+    const normalizedHeader = normalizeHeader(header);
+
+    const foundKey = Object.keys(row).find((key) => {
+      const normalizedKey = normalizeHeader(key);
+
+      return (
+        normalizedKey === normalizedHeader ||
+        normalizedKey.includes(normalizedHeader) ||
+        normalizedHeader.includes(normalizedKey)
+      );
+    });
+
+    if (foundKey && row[foundKey]) {
+      return row[foundKey].trim();
+    }
+  }
+
+  return "";
+}
+
+function normalizeGender(value: string) {
+  const text = value.trim().toLowerCase();
+
+  if (["l", "lelaki", "male", "m"].includes(text)) return "Lelaki";
+  if (["p", "perempuan", "female", "f"].includes(text)) return "Perempuan";
+
+  return value || "Lelaki";
+}
+
+function normalizeDate(value: string) {
+  const text = value.trim();
+
+  if (!text) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(text)) {
+    const [day, month, year] = text.split("/");
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(text)) {
+    const [day, month, year] = text.split("-");
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  return null;
+}
+
+function calculateAgeFromBirthDate(birthDate: string | null) {
+  if (!birthDate) return null;
+
+  const birth = new Date(birthDate);
+  if (Number.isNaN(birth.getTime())) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+
+  const monthDiff = today.getMonth() - birth.getMonth();
+
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birth.getDate())
+  ) {
+    age--;
+  }
+
+  return age > 0 ? age : null;
+}
+
+function getBirthDateFromIc(icNumber: string) {
+  const digits = cleanIc(icNumber);
+
+  if (digits.length < 6) return null;
+
+  const yy = Number(digits.slice(0, 2));
+  const mm = Number(digits.slice(2, 4));
+  const dd = Number(digits.slice(4, 6));
+
+  if (!yy && yy !== 0) return null;
+  if (!mm || !dd || mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+
+  const currentYear = new Date().getFullYear();
+  const currentYY = currentYear % 100;
+
+  const fullYear = yy <= currentYY ? 2000 + yy : 1900 + yy;
+
+  return `${fullYear}-${String(mm).padStart(2, "0")}-${String(dd).padStart(
+    2,
+    "0"
+  )}`;
+}
+
+function calculateAgeFromIc(icNumber: string) {
+  const birthDate = getBirthDateFromIc(icNumber);
+  return calculateAgeFromBirthDate(birthDate);
+}
+
+function downloadAssistantMemberTemplate() {
+  const headers = [
+    "BIL",
+    "NAMA PENUH (HURUF BESAR, SEPERTI DALAM K.P.)",
+    "NO. K.P.",
+    "JANTINA",
+    "KETURUNAN",
+    "TARIKH LAHIR",
+    "UNIT PENGAKAP",
+    "NO. WOSM",
+    "EMAIL",
+  ];
+
+  const rows = [
+    [
+      "1",
+      "ALI BIN ABU",
+      "'010203101234",
+      "Lelaki",
+      "Melayu",
+      "03/02/2010",
+      "Pengakap Kanak-Kanak",
+      "MY12345",
+      "ali@example.com",
+    ],
+    [
+      "2",
+      "SITI BINTI AHMAD",
+      "'110405105678",
+      "Perempuan",
+      "Melayu",
+      "05/04/2011",
+      "Pengakap Kanak-Kanak",
+      "MY67890",
+      "siti@example.com",
+    ],
+  ];
+
+  const csvContent = [headers, ...rows]
+    .map((row) =>
+      row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")
+    )
+    .join("\n");
+
+  const blob = new Blob(["\ufeff" + csvContent], {
+    type: "text/csv;charset=utf-8;",
+  });
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = "template-import-ahli-penolong-pemimpin.csv";
+  link.click();
+
+  URL.revokeObjectURL(url);
 }
 
 async function addAuditLog(
@@ -216,6 +514,8 @@ export default function AssistantMembersPage() {
 
   const [showViewModal, setShowViewModal] = useState(false);
   const [showFormModal, setShowFormModal] = useState(false);
+
+  const [importing, setImporting] = useState(false);
 
   const [form, setForm] = useState<MemberForm>({
     full_name: "",
@@ -292,6 +592,7 @@ export default function AssistantMembersPage() {
 
   const filteredMembers = useMemo(() => {
     const keyword = search.toLowerCase().trim();
+    const numericSearch = search.replace(/\D/g, "");
 
     return members.filter((member) => {
       const status = normalizeStatus(member.status);
@@ -301,8 +602,8 @@ export default function AssistantMembersPage() {
         !keyword ||
         String(member.full_name || "").toLowerCase().includes(keyword) ||
         String(member.email || "").toLowerCase().includes(keyword) ||
-        String(member.ic_number || "").includes(search.replace(/\D/g, "")) ||
-        String(member.phone || "").includes(search.replace(/\D/g, "")) ||
+        String(member.ic_number || "").includes(numericSearch) ||
+        String(member.phone || "").includes(numericSearch) ||
         category.toLowerCase().includes(keyword);
 
       const matchStatus =
@@ -445,7 +746,6 @@ export default function AssistantMembersPage() {
     setSaving(true);
 
     const icNumber = cleanIc(form.ic_number);
-
     const duplicateIc = await checkDuplicateIc(icNumber, editingMember?.id);
 
     if (duplicateIc) {
@@ -454,6 +754,9 @@ export default function AssistantMembersPage() {
       return;
     }
 
+    const calculatedAge =
+      form.age && Number(form.age) > 0 ? Number(form.age) : 0;
+
     const payload: any = {
       full_name: form.full_name.trim(),
       ic_number: icNumber || null,
@@ -461,7 +764,8 @@ export default function AssistantMembersPage() {
       phone: normalizeMalaysiaPhone(form.phone) || null,
       category: form.category,
       scout_category: form.category,
-      age: form.age ? Number(form.age) : null,
+      unit_pengakap: form.category,
+      age: calculatedAge,
       gender: form.gender || null,
       guardian_name: form.guardian_name.trim() || null,
       guardian_phone: normalizeMalaysiaPhone(form.guardian_phone) || null,
@@ -535,7 +839,236 @@ export default function AssistantMembersPage() {
     setShowFormModal(false);
     setSaving(false);
 
-    alert(editingMember ? "Ahli berjaya dikemaskini." : "Ahli berjaya ditambah.");
+    alert(
+      editingMember ? "Ahli berjaya dikemaskini." : "Ahli berjaya ditambah."
+    );
+  }
+
+  async function handleImportMembers(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    if (!districtEnvironmentId) {
+      alert("Akaun belum dipautkan dengan district environment.");
+      return;
+    }
+
+    if (!groupId && !groupName) {
+      alert("Akaun Penolong Pemimpin belum dipautkan dengan kumpulan.");
+      return;
+    }
+
+    setImporting(true);
+
+    try {
+      const buffer = await file.arrayBuffer();
+
+      let text = new TextDecoder("utf-8").decode(buffer);
+
+      if (text.includes("\u0000")) {
+        text = new TextDecoder("utf-16").decode(buffer);
+      }
+
+      const rows = parseCsvText(text);
+
+      if (rows.length === 0) {
+        alert("Tiada data ahli dijumpai dalam fail CSV.");
+        setImporting(false);
+        return;
+      }
+
+      const icNumbers = rows
+        .map((row) =>
+          cleanIc(
+            getCsvValue(row, [
+              "NO. K.P.",
+              "NO KP",
+              "NO K.P",
+              "IC",
+              "IC NUMBER",
+              "NO. MYKID",
+            ])
+          )
+        )
+        .filter(Boolean);
+
+      let existingIcSet = new Set<string>();
+
+      if (icNumbers.length > 0) {
+        const { data: existingMembers, error: existingError } = await supabase
+          .from("members")
+          .select("ic_number")
+          .in("ic_number", icNumbers)
+          .is("deleted_at", null);
+
+        if (existingError) {
+          alert(existingError.message);
+          setImporting(false);
+          return;
+        }
+
+        existingIcSet = new Set(
+          (existingMembers || [])
+            .map((member) => String(member.ic_number || ""))
+            .filter(Boolean)
+        );
+      }
+
+      const seenIcSet = new Set<string>();
+      const payloads: any[] = [];
+      const skippedRows: string[] = [];
+
+      rows.forEach((row, index) => {
+        const rowNumber = index + 1;
+
+        const fullName = getCsvValue(row, [
+          "NAMA PENUH (HURUF BESAR, SEPERTI DALAM K.P.)",
+          "NAMA PENUH",
+          "NAMA",
+          "FULL NAME",
+        ]).toUpperCase();
+
+        const icNumber = cleanIc(
+          getCsvValue(row, [
+            "NO. K.P.",
+            "NO KP",
+            "NO K.P",
+            "IC",
+            "IC NUMBER",
+          ])
+        );
+
+        const gender = normalizeGender(getCsvValue(row, ["JANTINA", "GENDER"]));
+
+        const race =
+          getCsvValue(row, ["KETURUNAN", "RACE", "KAUM"]) || null;
+
+        const birthDateFromCsv = normalizeDate(
+          getCsvValue(row, ["TARIKH LAHIR", "BIRTH DATE", "DOB"])
+        );
+
+        const birthDate = birthDateFromCsv || getBirthDateFromIc(icNumber);
+
+        const age =
+          calculateAgeFromBirthDate(birthDate) ??
+          calculateAgeFromIc(icNumber) ??
+          0;
+
+        const unitPengakap =
+          getCsvValue(row, [
+            "UNIT PENGAKAP",
+            "KATEGORI",
+            "SCOUT CATEGORY",
+            "CATEGORY",
+          ]) || "Pengakap Kanak-Kanak";
+
+        const wosmNo =
+          getCsvValue(row, ["NO. WOSM", "NO WOSM", "WOSM", "WOSM NO"]) ||
+          null;
+
+        const email = getCsvValue(row, ["EMAIL", "E-MAIL"]) || null;
+
+        if (!fullName) {
+          skippedRows.push(`Row ${rowNumber}: Nama kosong`);
+          return;
+        }
+
+        if (icNumber && icNumber.length !== 12) {
+          skippedRows.push(`Row ${rowNumber}: IC tidak cukup 12 digit`);
+          return;
+        }
+
+        if (email && !isValidEmail(email)) {
+          skippedRows.push(`Row ${rowNumber}: Email tidak sah`);
+          return;
+        }
+
+        if (icNumber && existingIcSet.has(icNumber)) {
+          skippedRows.push(`Row ${rowNumber}: IC sudah wujud`);
+          return;
+        }
+
+        if (icNumber && seenIcSet.has(icNumber)) {
+          skippedRows.push(`Row ${rowNumber}: Duplicate IC dalam fail`);
+          return;
+        }
+
+        if (icNumber) {
+          seenIcSet.add(icNumber);
+        }
+
+        payloads.push({
+          full_name: fullName,
+          ic_number: icNumber || null,
+          email,
+          gender,
+          race,
+          birth_date: birthDate,
+          unit_pengakap: unitPengakap,
+          wosm_no: wosmNo,
+          category: unitPengakap,
+          scout_category: unitPengakap,
+          age,
+          status: "Aktif",
+          district: district || null,
+          district_environment_id: districtEnvironmentId,
+          group_id: groupId || null,
+          group_name: groupName || null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+        });
+      });
+
+      if (payloads.length === 0) {
+        alert(
+          `Tiada ahli berjaya diimport.\n\nSkipped:\n${skippedRows
+            .slice(0, 10)
+            .join("\n")}`
+        );
+        setImporting(false);
+        return;
+      }
+
+      const { error } = await supabase.from("members").insert(payloads);
+
+      if (error) {
+        alert(error.message);
+        setImporting(false);
+        return;
+      }
+
+      await addAuditLog(
+        "IMPORT",
+        `Penolong Pemimpin import ${payloads.length} ahli melalui CSV`,
+        null,
+        null,
+        {
+          imported: payloads.length,
+          skipped: skippedRows.length,
+          group_id: groupId || null,
+          group_name: groupName || null,
+        }
+      );
+
+      await fetchMembers();
+
+      alert(
+        `Import selesai.\n\nBerjaya: ${payloads.length}\nSkip: ${
+          skippedRows.length
+        }${
+          skippedRows.length > 0
+            ? `\n\nContoh skip:\n${skippedRows.slice(0, 10).join("\n")}`
+            : ""
+        }`
+      );
+    } catch (error: any) {
+      alert(error?.message || "Gagal import CSV.");
+    }
+
+    setImporting(false);
   }
 
   if (!groupId && !groupName) {
@@ -560,11 +1093,35 @@ export default function AssistantMembersPage() {
           </p>
         </div>
 
-        <div className="d-flex gap-2">
+        <div className="d-flex gap-2 flex-wrap">
           <button className="btn btn-outline-success" onClick={fetchMembers}>
             <i className="bi bi-arrow-clockwise me-1"></i>
             Refresh
           </button>
+
+          <button
+            className="btn btn-outline-secondary"
+            onClick={downloadAssistantMemberTemplate}
+          >
+            <i className="bi bi-file-earmark-arrow-down me-1"></i>
+            Template CSV
+          </button>
+
+          <label
+            className={`btn btn-outline-primary mb-0 ${
+              importing ? "disabled" : ""
+            }`}
+          >
+            <i className="bi bi-upload me-1"></i>
+            {importing ? "Importing..." : "Import CSV"}
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              hidden
+              disabled={importing}
+              onChange={handleImportMembers}
+            />
+          </label>
 
           <button className="btn btn-success" onClick={openAddModal}>
             <i className="bi bi-person-plus me-1"></i>
@@ -575,8 +1132,9 @@ export default function AssistantMembersPage() {
 
       <div className="alert alert-light border rounded-4 mb-4">
         <i className="bi bi-shield-check text-success me-2"></i>
-        Penolong Pemimpin hanya boleh tambah dan edit ahli dalam kumpulan sendiri.
-        Fungsi nyahaktif ahli dikawal oleh Pemimpin Kumpulan / Pesuruhjaya Daerah.
+        Penolong Pemimpin hanya boleh tambah, edit dan import ahli dalam
+        kumpulan sendiri. Fungsi nyahaktif ahli dikawal oleh Pemimpin Kumpulan /
+        Pesuruhjaya Daerah.
       </div>
 
       <div className="row g-3 mb-4">
@@ -725,7 +1283,7 @@ export default function AssistantMembersPage() {
 
                     <td className="px-4 py-3">{getCategory(member)}</td>
 
-                    <td className="px-4 py-3">{member.age || "-"}</td>
+                    <td className="px-4 py-3">{member.age ?? "-"}</td>
 
                     <td className="px-4 py-3">
                       <span
@@ -872,7 +1430,7 @@ export default function AssistantMembersPage() {
                     <label className="form-label">Umur</label>
                     <input
                       type="number"
-                      min={1}
+                      min={0}
                       max={99}
                       className="form-control"
                       value={form.age}
@@ -1069,8 +1627,25 @@ export default function AssistantMembersPage() {
                     value={getCategory(selectedMember)}
                   />
                   <InfoRow
+                    label="Keturunan"
+                    value={selectedMember.race || "-"}
+                  />
+                  <InfoRow
+                    label="Tarikh Lahir"
+                    value={formatDate(selectedMember.birth_date)}
+                  />
+                  <InfoRow
+                    label="No. WOSM"
+                    value={selectedMember.wosm_no || "-"}
+                  />
+                  <InfoRow
                     label="Umur"
-                    value={selectedMember.age ? String(selectedMember.age) : "-"}
+                    value={
+                      selectedMember.age !== null &&
+                      selectedMember.age !== undefined
+                        ? String(selectedMember.age)
+                        : "-"
+                    }
                   />
                   <InfoRow label="Jantina" value={selectedMember.gender || "-"} />
                   <InfoRow
