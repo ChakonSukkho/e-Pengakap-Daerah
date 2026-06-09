@@ -75,6 +75,11 @@ const menus: Record<RoleType, MenuItem[]> = {
       icon: "bi-calendar-event",
     },
     {
+      to: "/district/reports",
+      label: "Laporan",
+      icon: "bi-file-earmark-bar-graph",
+    },
+    {
       to: "/district/settings",
       label: "Tetapan Daerah",
       icon: "bi-gear",
@@ -120,7 +125,7 @@ const menus: Record<RoleType, MenuItem[]> = {
     {
       to: "/assistant-commissioner/reports",
       label: "Laporan",
-      icon: "bi-file-earmark-text",
+      icon: "bi-file-earmark-bar-graph",
     },
     {
       to: "/assistant-commissioner/profile",

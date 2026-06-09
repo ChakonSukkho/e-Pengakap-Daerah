@@ -13,6 +13,7 @@ import DistrictDetailPage from "../pages/superadmin/DistrictDetailPage";
 import SystemUsersPage from "../pages/superadmin/SystemUsersPage";
 import MasterDataPage from "../pages/superadmin/MasterDataPage";
 import SystemAuditLogPage from "../pages/superadmin/SystemAuditLogPage";
+import DistrictReportsPage from "../pages/district/DistrictReportsPage";
 
 import DistrictDashboard from "../pages/district/DistrictDashboard";
 import UserManagementPage from "../pages/district/UserManagementPage";
@@ -29,7 +30,6 @@ import ACMemberManagementPage from "../pages/assistantCommissioner/ACMemberManag
 import ACGroupManagementPage from "../pages/assistantCommissioner/ACGroupManagementPage";
 import AssistantCommissionerActivitiesPage from "../pages/assistantCommissioner/AssistantCommissionerActivitiesPage";
 import AssistantCommissionerProfilePage from "../pages/assistantCommissioner/AssistantCommissionerProfilePage";
-import ReportsPage from "../pages/assistantCommissioner/ReportsPage";
 import ACUserManagementPage from "../pages/assistantCommissioner/ACUserManagementPage";
 
 import GroupLeaderDashboard from "../pages/groupLeader/GroupLeaderDashboard";
@@ -171,6 +171,11 @@ export default function AppRoutes() {
       />
 
       <Route
+        path="/district/reports"
+        element={protect(DISTRICT_COMMISSIONER, <DistrictReportsPage />)}
+      />
+
+      <Route
         path="/district/audit"
         element={protect(DISTRICT_COMMISSIONER, <AuditLogPage />)}
       />
@@ -227,7 +232,7 @@ export default function AppRoutes() {
 
       <Route
         path="/assistant-commissioner/reports"
-        element={protect(ASSISTANT_COMMISSIONER, <ReportsPage />)}
+        element={protect(ASSISTANT_COMMISSIONER, <DistrictReportsPage />)}
       />
 
       <Route
