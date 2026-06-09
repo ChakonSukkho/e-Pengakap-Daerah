@@ -184,6 +184,11 @@ const menus: Record<RoleType, MenuItem[]> = {
       icon: "bi-people",
     },
     {
+      to: "/assistant-leader/attendance",
+      label: "Kehadiran",
+      icon: "bi-clipboard-check",
+    },
+    {
       to: "/assistant-leader/activities",
       label: "Aktiviti",
       icon: "bi-calendar-event",

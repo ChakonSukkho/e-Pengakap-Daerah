@@ -62,6 +62,7 @@ type CurrentUser = {
 };
 
 const CATEGORY_OPTIONS = [
+  "Pengakap Lebah",
   "Pengakap Kanak-Kanak",
   "Pengakap Muda",
   "Pengakap Remaja",
@@ -70,6 +71,25 @@ const CATEGORY_OPTIONS = [
 
 const GENDER_OPTIONS = ["Lelaki", "Perempuan"];
 const STATUS_OPTIONS = ["Aktif", "Tidak Aktif"];
+
+const RACE_OPTIONS = [
+  "Melayu",
+  "Cina",
+  "India",
+  "Bumiputera Sabah",
+  "Bumiputera Sarawak",
+  "Orang Asli",
+  "Iban",
+  "Bidayuh",
+  "Kadazan-Dusun",
+  "Bajau",
+  "Melanau",
+  "Murut",
+  "Sikh",
+  "Serani",
+  "Siam",
+  "Lain-lain",
+];
 
 function getCurrentUser(): CurrentUser {
   try {
@@ -102,11 +122,11 @@ function normalizeStatus(status?: string | null) {
   return status || "Aktif";
 }
 
-function normalizeMalaysianIC(value: string) {
-  return value.replace(/\D/g, "").slice(0, 12);
+function normalizeMalaysianIC(value?: string | null) {
+  return String(value || "").replace(/\D/g, "").slice(0, 12);
 }
 
-function formatMalaysianIC(value: string) {
+function formatMalaysianIC(value?: string | null) {
   const digits = normalizeMalaysianIC(value);
 
   if (digits.length <= 6) return digits;
@@ -115,7 +135,7 @@ function formatMalaysianIC(value: string) {
   return `${digits.slice(0, 6)}-${digits.slice(6, 8)}-${digits.slice(8)}`;
 }
 
-function isValidMalaysianIC(value: string) {
+function isValidMalaysianIC(value?: string | null) {
   const digits = normalizeMalaysianIC(value);
 
   if (digits.length !== 12) return false;
@@ -123,6 +143,7 @@ function isValidMalaysianIC(value: string) {
   const month = Number(digits.slice(2, 4));
   const day = Number(digits.slice(4, 6));
 
+  if (Number.isNaN(month) || Number.isNaN(day)) return false;
   if (month < 1 || month > 12) return false;
   if (day < 1 || day > 31) return false;
 
@@ -134,11 +155,11 @@ function displayIC(value?: string | null) {
   return formatMalaysianIC(value);
 }
 
-function normalizeMalaysiaPhone(value: string) {
-  return value.replace(/\D/g, "").slice(0, 11);
+function normalizeMalaysiaPhone(value?: string | null) {
+  return String(value || "").replace(/\D/g, "").slice(0, 11);
 }
 
-function formatMalaysiaPhone(value: string) {
+function formatMalaysiaPhone(value?: string | null) {
   const digits = normalizeMalaysiaPhone(value);
 
   if (!digits) return "";
@@ -161,7 +182,7 @@ function formatMalaysiaPhone(value: string) {
   return `${digits.slice(0, 3)}-${digits.slice(3, 6)} ${digits.slice(6)}`;
 }
 
-function isValidMalaysiaPhone(value: string) {
+function isValidMalaysiaPhone(value?: string | null) {
   const digits = normalizeMalaysiaPhone(value);
 
   if (!digits) return false;
@@ -175,9 +196,12 @@ function displayPhone(value?: string | null) {
   return formatMalaysiaPhone(value);
 }
 
-function isValidEmail(email: string) {
-  if (!email.trim()) return true;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+function isValidEmail(email?: string | null) {
+  const value = String(email || "").trim();
+
+  if (!value) return true;
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function getCategory(member: Member) {
@@ -192,71 +216,65 @@ function getCategory(member: Member) {
 function formatDate(value?: string | null) {
   if (!value) return "-";
 
-  return new Date(value).toLocaleDateString("ms-MY", {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleDateString("ms-MY", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
 }
 
-function formatDateForDB(value: string) {
+function formatDateForDB(value?: string | null) {
   if (!value) return null;
 
-  const clean = value.trim();
+  const clean = String(value).trim();
 
-  // Already YYYY-MM-DD
+  if (!clean) return null;
+
   if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
 
-  // DD/MM/YYYY or DD-MM-YYYY (4-digit year)
-  const longYear = clean.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  const longYear = clean.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
   if (longYear) {
     const day = longYear[1].padStart(2, "0");
     const month = longYear[2].padStart(2, "0");
     const year = longYear[3];
+
+    if (Number(month) < 1 || Number(month) > 12) return null;
+    if (Number(day) < 1 || Number(day) > 31) return null;
+
     return `${year}-${month}-${day}`;
   }
 
-  // YY-MM-DD or YY/MM/DD  (e.g. 01-01-12 from CSV)
-  const yymmdd = clean.match(/^(\d{2})[\/-](\d{2})[\/-](\d{2})$/);
-  if (yymmdd) {
-    const part1 = Number(yymmdd[1]);
-    const part2 = Number(yymmdd[2]);
-    const part3 = Number(yymmdd[3]);
+  const shortYear = clean.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2})$/);
+  if (shortYear) {
+    const part1 = Number(shortYear[1]);
+    const part2 = Number(shortYear[2]);
+    const part3 = Number(shortYear[3]);
 
-    // Heuristic: if part2 is a valid month (1-12) and part1 looks like a year (≥ 0)
-    // treat as YY-MM-DD
-    if (part2 >= 1 && part2 <= 12 && part3 >= 1 && part3 <= 31) {
-      // YY-MM-DD → YYYY-MM-DD
-      const fullYear = part1 <= 30 ? 2000 + part1 : 1900 + part1;
-      return `${fullYear}-${yymmdd[2]}-${yymmdd[3]}`;
+    if (part1 >= 1 && part1 <= 31 && part2 >= 1 && part2 <= 12) {
+      const day = String(part1).padStart(2, "0");
+      const month = String(part2).padStart(2, "0");
+      const year = part3 <= 30 ? 2000 + part3 : 1900 + part3;
+
+      return `${year}-${month}-${day}`;
     }
-
-    // Fallback: treat as DD-MM-YY
-    if (part2 >= 1 && part2 <= 12 && part1 >= 1 && part1 <= 31) {
-      const fullYear = part3 <= 30 ? 2000 + part3 : 1900 + part3;
-      return `${fullYear}-${yymmdd[2]}-${yymmdd[1].padStart(2, "0")}`;
-    }
-  }
-
-  // DD/MM/YY or DD-MM-YY (2-digit year, day first)
-  const ddmmyy = clean.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2})$/);
-  if (ddmmyy) {
-    const day = ddmmyy[1].padStart(2, "0");
-    const month = ddmmyy[2].padStart(2, "0");
-    const yy = Number(ddmmyy[3]);
-    const fullYear = yy <= 30 ? 2000 + yy : 1900 + yy;
-    return `${fullYear}-${month}-${day}`;
   }
 
   return null;
 }
 
-function calculateAgeFromBirthDate(value: string) {
+function calculateAgeFromBirthDate(value?: string | null) {
   const dbDate = formatDateForDB(value);
 
   if (!dbDate) return "";
 
   const birthDate = new Date(dbDate);
+
+  if (Number.isNaN(birthDate.getTime())) return "";
+
   const today = new Date();
 
   let age = today.getFullYear() - birthDate.getFullYear();
@@ -266,103 +284,266 @@ function calculateAgeFromBirthDate(value: string) {
     monthDiff < 0 ||
     (monthDiff === 0 && today.getDate() < birthDate.getDate())
   ) {
-    age--;
+    age -= 1;
   }
 
-  return age > 0 ? String(age) : "";
+  return age > 0 && age <= 100 ? String(age) : "";
 }
 
-function detectDelimiter(line: string) {
-  const delimiters = [",", ";", "\t"];
-  let bestDelimiter = ",";
-  let maxCount = 0;
+function calculateAgeFromIC(icNumber?: string | null) {
+  const cleanIC = normalizeMalaysianIC(icNumber);
 
-  delimiters.forEach((delimiter) => {
-    const count = line.split(delimiter).length - 1;
+  if (cleanIC.length !== 12) return "";
 
-    if (count > maxCount) {
-      maxCount = count;
-      bestDelimiter = delimiter;
-    }
-  });
+  const yy = Number(cleanIC.slice(0, 2));
+  const mm = Number(cleanIC.slice(2, 4));
+  const dd = Number(cleanIC.slice(4, 6));
 
-  return bestDelimiter;
-}
+  if (Number.isNaN(yy) || Number.isNaN(mm) || Number.isNaN(dd)) return "";
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return "";
 
-function parseCSVLine(line: string, delimiter: string) {
-  const result: string[] = [];
-  let current = "";
-  let insideQuotes = false;
+  const currentYear = new Date().getFullYear();
+  const currentYY = currentYear % 100;
+  const birthYear = yy <= currentYY ? 2000 + yy : 1900 + yy;
 
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    const nextChar = line[i + 1];
+  const birthDate = new Date(birthYear, mm - 1, dd);
+  const today = new Date();
 
-    if (char === '"' && insideQuotes && nextChar === '"') {
-      current += '"';
-      i++;
-    } else if (char === '"') {
-      insideQuotes = !insideQuotes;
-    } else if (char === delimiter && !insideQuotes) {
-      result.push(current.trim().replace(/^"|"$/g, ""));
-      current = "";
-    } else {
-      current += char;
-    }
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birthDate.getDate())
+  ) {
+    age -= 1;
   }
 
-  result.push(current.trim().replace(/^"|"$/g, ""));
+  return age > 0 && age <= 100 ? String(age) : "";
+}
 
-  return result;
+function normalizeGender(value?: string | null) {
+  const gender = String(value || "").trim().toLowerCase();
+
+  if (["lelaki", "l", "male", "m"].includes(gender)) return "Lelaki";
+  if (["perempuan", "p", "female", "f"].includes(gender)) return "Perempuan";
+
+  return value || null;
+}
+
+function normalizeRace(value?: string | null) {
+  const raw = String(value || "").trim();
+
+  if (!raw) return null;
+
+  const found = RACE_OPTIONS.find(
+    (race) => race.toLowerCase() === raw.toLowerCase()
+  );
+
+  return found || "Lain-lain";
+}
+
+async function readFileTextSmart(file: File) {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return new TextDecoder("utf-16le").decode(buffer);
+  }
+
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return new TextDecoder("utf-16be").decode(buffer);
+  }
+
+  const utf8Text = new TextDecoder("utf-8").decode(buffer);
+  const nullCount = (utf8Text.match(/\u0000/g) || []).length;
+
+  if (nullCount > 10) {
+    return new TextDecoder("utf-16le").decode(buffer);
+  }
+
+  return utf8Text;
 }
 
 function normalizeHeader(header: string) {
-  return header
+  return String(header || "")
+    .replace(/\u0000/g, "")
     .replace(/^\uFEFF/, "")
+    .trim()
     .toLowerCase()
     .replace(/\./g, "")
     .replace(/\(/g, "")
     .replace(/\)/g, "")
     .replace(/,/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/_/g, "")
+    .replace(/-/g, "")
+    .replace(/\s+/g, "")
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function detectDelimiter(text: string) {
+  const sampleLines = String(text || "")
+    .split("\n")
+    .slice(0, 25)
+    .join("\n");
+
+  const comma = (sampleLines.match(/,/g) || []).length;
+  const semicolon = (sampleLines.match(/;/g) || []).length;
+  const tab = (sampleLines.match(/\t/g) || []).length;
+
+  if (tab >= comma && tab >= semicolon && tab > 0) return "\t";
+  if (semicolon >= comma && semicolon > 0) return ";";
+
+  return ",";
+}
+
+function isLikelyMemberHeader(headers: string[]) {
+  const joined = headers.join("|");
+
+  const hasName =
+    joined.includes("namapen") ||
+    joined.includes("namapenuh") ||
+    joined.includes("fullname") ||
+    joined.includes("namaahli") ||
+    joined.includes("nama");
+
+  const hasIC =
+    joined.includes("nokp") ||
+    joined.includes("noic") ||
+    joined.includes("ic") ||
+    joined.includes("mykid") ||
+    joined.includes("kadpengenalan");
+
+  const hasGender =
+    joined.includes("jantina") ||
+    joined.includes("gender") ||
+    joined.includes("sex");
+
+  return hasName && hasIC && hasGender;
 }
 
 function parseCSV(text: string) {
-  const cleanText = text.replace(/^\uFEFF/, "");
+  let cleanText = String(text || "")
+    .replace(/\u0000/g, "")
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
 
-  const lines = cleanText
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  let lines = cleanText.split("\n").filter((line) => line.trim() !== "");
+
+  if (lines[0]?.toLowerCase().startsWith("sep=")) {
+    lines = lines.slice(1);
+    cleanText = lines.join("\n");
+  }
 
   if (lines.length < 2) return [];
 
-  const delimiter = detectDelimiter(lines[0]);
-  const headers = parseCSVLine(lines[0], delimiter).map(normalizeHeader);
+  const delimiter = detectDelimiter(cleanText);
 
-  console.log("CSV delimiter:", delimiter);
-  console.log("CSV headers:", headers);
+  const rawRows: string[][] = [];
+  let current = "";
+  let row: string[] = [];
+  let insideQuotes = false;
 
-  return lines.slice(1).map((line) => {
-    const values = parseCSVLine(line, delimiter);
-    const row: Record<string, string> = {};
+  for (let i = 0; i < cleanText.length; i += 1) {
+    const char = cleanText[i];
+    const next = cleanText[i + 1];
 
-    headers.forEach((header, index) => {
-      row[header] = values[index] || "";
+    if (char === '"' && next === '"') {
+      current += '"';
+      i += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      insideQuotes = !insideQuotes;
+      continue;
+    }
+
+    if (char === delimiter && !insideQuotes) {
+      row.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    if (char === "\n" && !insideQuotes) {
+      row.push(current.trim());
+
+      if (row.some((cell) => cell.trim() !== "")) {
+        rawRows.push(row);
+      }
+
+      row = [];
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  row.push(current.trim());
+
+  if (row.some((cell) => cell.trim() !== "")) {
+    rawRows.push(row);
+  }
+
+  if (rawRows.length < 2) return [];
+
+  const headerIndex = rawRows.findIndex((rawRow) => {
+    const normalizedHeaders = rawRow.map(normalizeHeader);
+    return isLikelyMemberHeader(normalizedHeaders);
+  });
+
+  if (headerIndex === -1) {
+    console.log(
+      "CSV rows checked for header:",
+      rawRows.map((rawRow) => rawRow.map(normalizeHeader))
+    );
+    return [];
+  }
+
+  const headers = rawRows[headerIndex].map(normalizeHeader);
+
+  console.log("CSV delimiter detected:", delimiter);
+  console.log("CSV header row detected:", headerIndex + 1);
+  console.log("CSV headers detected:", headers);
+
+  return rawRows.slice(headerIndex + 1).map((cells, index) => {
+    const item: Record<string, string> = {};
+
+    headers.forEach((header, cellIndex) => {
+      item[header] = cells[cellIndex]?.trim() || "";
     });
 
-    return row;
+    item.__rowNumber = String(headerIndex + index + 2);
+    item.__raw = cells.join(" | ");
+
+    return item;
   });
 }
 
 function getCSVValue(row: Record<string, string>, keys: string[]) {
+  const rowKeys = Object.keys(row);
+
   for (const key of keys) {
     const normalizedKey = normalizeHeader(key);
-    const value = row[normalizedKey];
 
-    if (value !== undefined && value !== null && String(value).trim() !== "") {
-      return String(value).trim();
+    if (row[normalizedKey]) {
+      return String(row[normalizedKey]).trim();
+    }
+
+    const fuzzyKey = rowKeys.find((rowKey) => {
+      if (rowKey.startsWith("__")) return false;
+
+      return (
+        rowKey === normalizedKey ||
+        rowKey.includes(normalizedKey) ||
+        normalizedKey.includes(rowKey)
+      );
+    });
+
+    if (fuzzyKey && row[fuzzyKey]) {
+      return String(row[fuzzyKey]).trim();
     }
   }
 
@@ -379,7 +560,10 @@ async function addAuditLog(
 
     await supabase.from("audit_logs").insert({
       actor_name:
-        currentUser.full_name || currentUser.name || "Pemimpin Kumpulan",
+        currentUser.full_name ||
+        currentUser.name ||
+        currentUser.email ||
+        "Pemimpin Kumpulan",
       actor_role: currentUser.role || "Pemimpin Kumpulan",
       action,
       module: "Ahli Kumpulan",
@@ -423,7 +607,6 @@ export default function GroupMembersPage() {
 
   const [importing, setImporting] = useState(false);
   const [csvFile, setCsvFile] = useState<File | null>(null);
-  // Store file text eagerly on selection to avoid NotReadableError
   const [csvText, setCsvText] = useState<string>("");
 
   const [form, setForm] = useState<MemberForm>({
@@ -447,6 +630,7 @@ export default function GroupMembersPage() {
 
   useEffect(() => {
     fetchMembers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function fetchMembers() {
@@ -464,14 +648,14 @@ export default function GroupMembersPage() {
       .is("deleted_at", null)
       .order("full_name", { ascending: true });
 
-    if (groupId) {
-      query = query.eq("group_id", groupId);
-    } else if (groupName) {
-      query = query.eq("group_name", groupName);
-    }
-
     if (districtEnvironmentId) {
       query = query.eq("district_environment_id", districtEnvironmentId);
+    }
+
+    if (groupId) {
+      query = query.eq("group_id", groupId);
+    } else {
+      query = query.eq("group_name", groupName);
     }
 
     const { data, error } = await query;
@@ -666,6 +850,11 @@ export default function GroupMembersPage() {
       return false;
     }
 
+    if (!form.race.trim()) {
+      alert("Sila pilih keturunan.");
+      return false;
+    }
+
     if (!form.age.trim()) {
       alert("Sila isi umur ahli.");
       return false;
@@ -767,6 +956,7 @@ export default function GroupMembersPage() {
         .insert({
           ...payload,
           created_at: new Date().toISOString(),
+          deleted_at: null,
         })
         .select("id")
         .single();
@@ -790,8 +980,66 @@ export default function GroupMembersPage() {
     setSaving(false);
   }
 
+  function downloadImportTemplateCSV() {
+    const headers = [
+      "BIL",
+      "NAMA PENUH (HURUF BESAR, SEPERTI DALAM K.P.)",
+      "NO. K.P.",
+      "JANTINA",
+      "KETURUNAN",
+      "TARIKH LAHIR",
+      "UNIT PENGAKAP",
+      "NO. WOSM",
+      "EMAIL",
+    ];
+
+    const exampleRows = [
+      [
+        "1",
+        "AIMAN HAKIM BIN ALI",
+        "120101100001",
+        "Lelaki",
+        "Melayu",
+        "01/01/2012",
+        "Pengakap Kanak-Kanak",
+        "WOSM001",
+        "aiman@test.com",
+      ],
+      [
+        "2",
+        "NUR AISYAH BINTI ABU",
+        "120807100010",
+        "Perempuan",
+        "Cina",
+        "07/08/2012",
+        "Pengakap Kanak-Kanak",
+        "WOSM002",
+        "aisyah@test.com",
+      ],
+    ];
+
+    const csvContent = [headers, ...exampleRows]
+      .map((row) =>
+        row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob(["\ufeff" + csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "template-import-ahli-pengakap.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  }
+
   async function importCSVMembers() {
-    if (!csvText) {
+    if (!csvFile && !csvText) {
       alert("Sila pilih fail CSV.");
       return;
     }
@@ -804,94 +1052,241 @@ export default function GroupMembersPage() {
     setImporting(true);
 
     try {
-      // Use the pre-read csvText instead of reading csvFile again
-      const rows = parseCSV(csvText);
+      const text = csvText || (csvFile ? await readFileTextSmart(csvFile) : "");
+      const rows = parseCSV(text);
 
       console.log("CSV rows:", rows);
 
       if (rows.length === 0) {
-        alert("Fail CSV kosong atau format tidak sah.");
+        alert(
+          "Fail CSV kosong atau format tidak sah. Sistem tidak jumpa row header NAMA / NO. K.P. / JANTINA."
+        );
         setImporting(false);
         return;
       }
 
+      const skippedRows: string[] = [];
+      const warningRows: string[] = [];
+      const csvICSet = new Set<string>();
+
       const payload = rows
         .map((row) => {
-          const icNumber = normalizeMalaysianIC(
-            getCSVValue(row, [
-              "NO. K.P.",
-              "NO K.P",
-              "NO KP",
-              "NO.KP",
-              "NO IC",
-              "NO. IC",
-              "IC",
-              "ic_number",
-            ])
-          );
+          const rowNumber = row.__rowNumber || "-";
+
+          const rawIC = getCSVValue(row, [
+            "NO. K.P.",
+            "NO K.P.",
+            "NO KP",
+            "NO.KP",
+            "NO. IC",
+            "NO IC",
+            "NOIC",
+            "IC",
+            "MYKID",
+            "NO MYKID",
+            "KAD PENGENALAN",
+            "NRIC",
+            "ic_number",
+          ]);
 
           const fullName = getCSVValue(row, [
+            "NAMA PEN",
+            "NAMAPEN",
             "NAMA PENUH (HURUF BESAR, SEPERTI DALAM K.P.)",
+            "NAMA PENUH HURUF BESAR SEPERTI DALAM K.P.",
             "NAMA PENUH HURUF BESAR SEPERTI DALAM KP",
             "NAMA PENUH HURUF BESAR SEPERTI DALAM K P",
             "NAMA PENUH",
+            "NAMA AHLI",
             "NAMA",
+            "FULL NAME",
+            "FULLNAME",
             "full_name",
           ]);
 
-          const gender = getCSVValue(row, ["JANTINA", "gender"]);
-          const race = getCSVValue(row, ["KETURUNAN", "race"]);
-          const birthDateRaw = getCSVValue(row, ["TARIKH LAHIR", "birth_date"]);
-          const unitPengakap = getCSVValue(row, [
-            "UNIT PENGAKAP",
-            "unit_pengakap",
+          if (!fullName.trim()) {
+            if (row.__raw && row.__raw.replace(/\|/g, "").trim()) {
+              skippedRows.push(`Row ${rowNumber}: tiada nama`);
+            }
+            return null;
+          }
+
+          const cleanIC = normalizeMalaysianIC(rawIC);
+
+          if (!cleanIC || cleanIC.length !== 12) {
+            skippedRows.push(`Row ${rowNumber}: No K.P. tidak sah / kosong`);
+            return null;
+          }
+
+          if (!isValidMalaysianIC(cleanIC)) {
+            skippedRows.push(`Row ${rowNumber}: No K.P. tidak sah`);
+            return null;
+          }
+
+          if (csvICSet.has(cleanIC)) {
+            skippedRows.push(`Row ${rowNumber}: IC duplicate dalam CSV`);
+            return null;
+          }
+
+          csvICSet.add(cleanIC);
+
+          const genderRaw = getCSVValue(row, [
+            "JANTINA",
+            "GENDER",
+            "SEX",
+            "gender",
           ]);
+
+          const raceRaw = getCSVValue(row, [
+            "KETURUNAN",
+            "BANGSA",
+            "RACE",
+            "race",
+          ]);
+
+          const birthDateRaw = getCSVValue(row, [
+            "TARIKH LAHIR",
+            "TARIKHLAHIR",
+            "DOB",
+            "DATE OF BIRTH",
+            "BIRTHDATE",
+            "birth_date",
+          ]);
+
+          const unitPengakap =
+            getCSVValue(row, [
+              "UNIT PENG",
+              "UNIT PENGAKAP",
+              "UNITPENGAKAP",
+              "UNIT",
+              "KATEGORI",
+              "KATEGORI PENGAKAP",
+              "SCOUT CATEGORY",
+              "unit_pengakap",
+            ]) || "Pengakap Kanak-Kanak";
+
           const wosmNo = getCSVValue(row, [
+            "NO. WOS",
+            "NO WOS",
+            "NOWOS",
             "NO. WOSM",
             "NO WOSM",
+            "NOWOSM",
             "WOSM",
             "wosm_no",
           ]);
-          const email = getCSVValue(row, ["EMAIL", "email"]);
 
-          const birthDate = formatDateForDB(birthDateRaw);
-          const age = calculateAgeFromBirthDate(birthDateRaw);
+          const email = getCSVValue(row, [
+            "EMAIL",
+            "EMEL",
+            "E-MEL",
+            "EMAIL AHLI",
+            "email",
+          ]);
 
-          console.log("Parsed member:", {
-            icNumber,
-            fullName,
-            gender,
-            race,
-            birthDateRaw,
-            birthDate,
-            age,
-            unitPengakap,
-            wosmNo,
-            email,
-          });
+          const guardianName = getCSVValue(row, [
+            "NAMA PENJAGA",
+            "PENJAGA",
+            "GUARDIAN NAME",
+            "guardian_name",
+          ]);
+
+          const guardianPhone = getCSVValue(row, [
+            "TELEFON PENJAGA",
+            "NO TELEFON",
+            "NOMBOR TELEFON",
+            "PHONE",
+            "TEL",
+            "HP",
+            "guardian_phone",
+          ]);
+
+          const guardianEmail = getCSVValue(row, [
+            "EMAIL PENJAGA",
+            "EMEL PENJAGA",
+            "GUARDIAN EMAIL",
+            "guardian_email",
+          ]);
+
+          const address = getCSVValue(row, [
+            "ALAMAT",
+            "ADDRESS",
+            "ALAMAT RUMAH",
+            "address",
+          ]);
+
+          const birthDate = formatDateForDB(birthDateRaw);          
+
+          const ageFromBirthDate = birthDateRaw
+            ? calculateAgeFromBirthDate(birthDateRaw)
+            : "";         
+
+          const ageFromIC = calculateAgeFromIC(cleanIC);          
+
+          const age = ageFromBirthDate || ageFromIC || "1";
+
+          const gender = normalizeGender(genderRaw);
+          const race = normalizeRace(raceRaw);
+
+          if (!gender) {
+            warningRows.push(
+              `Row ${rowNumber}: jantina kosong / tidak dikenali`
+            );
+          }
+
+          if (!raceRaw) {
+            warningRows.push(`Row ${rowNumber}: keturunan kosong`);
+          }
+
+          if (email && !isValidEmail(email)) {
+            warningRows.push(
+              `Row ${rowNumber}: email tidak sah, disimpan kosong`
+            );
+          }
+
+          if (guardianEmail && !isValidEmail(guardianEmail)) {
+            warningRows.push(
+              `Row ${rowNumber}: email penjaga tidak sah, disimpan kosong`
+            );
+          }
+
+          const cleanGuardianPhone = normalizeMalaysiaPhone(guardianPhone);
+
+          if (guardianPhone && !isValidMalaysiaPhone(guardianPhone)) {
+            warningRows.push(
+              `Row ${rowNumber}: telefon penjaga tidak sah, disimpan kosong`
+            );
+          }
 
           return {
-            ic_number: icNumber,
+            ic_number: cleanIC,
             full_name: fullName.trim().toUpperCase(),
-            email: email.trim() || null,
+            email: email && isValidEmail(email) ? email.trim() : null,
 
             group_id: groupId || null,
             group_name: groupName || null,
 
-            category: unitPengakap || "Pengakap Kanak-Kanak",
-            scout_category: unitPengakap || "Pengakap Kanak-Kanak",
+            category: unitPengakap,
+            scout_category: unitPengakap,
 
-            age: age ? Number(age) : 0,
-            gender: gender || null,
-            race: race || null,
+            age: Number(age),
+            gender,
+            race,
             birth_date: birthDate,
-            unit_pengakap: unitPengakap || null,
+            unit_pengakap: unitPengakap,
             wosm_no: wosmNo || null,
 
-            guardian_name: null,
-            guardian_phone: null,
-            guardian_email: null,
-            address: null,
+            guardian_name: guardianName || null,
+            guardian_phone:
+              cleanGuardianPhone && isValidMalaysiaPhone(cleanGuardianPhone)
+                ? cleanGuardianPhone
+                : null,
+            guardian_email:
+              guardianEmail && isValidEmail(guardianEmail)
+                ? guardianEmail.trim()
+                : null,
+            address: address || null,
+
             notes: "Import daripada fail CSV format ahli Pengakap",
             status: "Aktif",
 
@@ -902,27 +1297,24 @@ export default function GroupMembersPage() {
             deleted_at: null,
           };
         })
-        .filter((member) => {
-          return member.ic_number.length === 12 && member.full_name;
-        });
+        .filter(Boolean) as any[];
 
-      console.log("Valid payload:", payload);
+      console.log("Valid import payload:", payload);
 
       if (payload.length === 0) {
         alert(
-          "Tiada data valid untuk diimport. Sila check Nama Penuh dan No K.P. Pastikan No K.P. 12 digit."
+          `Tiada data valid untuk diimport.\n\nSkipped: ${skippedRows.length}\n\nSila check No K.P. mesti 12 digit dan header mesti ada Nama / No. K.P. / Jantina.`
         );
         setImporting(false);
         return;
       }
 
-      const icList = payload.map((item) => item.ic_number);
+      const icList = payload.map((item) => item.ic_number).filter(Boolean);
 
       const { data: existingICs, error: checkError } = await supabase
         .from("members")
         .select("ic_number")
-        .in("ic_number", icList)
-        .is("deleted_at", null);
+        .in("ic_number", icList);
 
       if (checkError) {
         alert(checkError.message);
@@ -931,7 +1323,7 @@ export default function GroupMembersPage() {
       }
 
       const existingSet = new Set(
-        (existingICs || []).map((item) => item.ic_number)
+        (existingICs || []).map((item: any) => item.ic_number)
       );
 
       const finalPayload = payload.filter(
@@ -939,7 +1331,11 @@ export default function GroupMembersPage() {
       );
 
       if (finalPayload.length === 0) {
-        alert("Semua No K.P. dalam CSV sudah wujud dalam sistem.");
+        alert(
+          `Semua No K.P. dalam CSV sudah wujud dalam sistem.\n\n${icList
+            .map(formatMalaysianIC)
+            .join("\n")}`
+        );
         setImporting(false);
         return;
       }
@@ -947,7 +1343,18 @@ export default function GroupMembersPage() {
       const { error } = await supabase.from("members").insert(finalPayload);
 
       if (error) {
-        alert(error.message);
+        if (
+          error.message?.includes("duplicate key") ||
+          error.message?.includes("members_ic_number_unique") ||
+          error.code === "23505"
+        ) {
+          alert(
+            "Import gagal sebab masih ada IC duplicate dalam sistem. Refresh page dan cuba import semula."
+          );
+        } else {
+          alert(error.message);
+        }
+
         setImporting(false);
         return;
       }
@@ -963,16 +1370,25 @@ export default function GroupMembersPage() {
       setCsvFile(null);
       setCsvText("");
       setShowImportModal(false);
-      setImporting(false);
 
-      alert(
-        `${finalPayload.length} ahli berjaya diimport. ${
-          payload.length - finalPayload.length
-        } rekod duplicate No K.P. telah dilangkau.`
-      );
+      const summary = [
+        `${finalPayload.length} ahli berjaya diimport.`,
+        payload.length - finalPayload.length > 0
+          ? `${payload.length - finalPayload.length} IC sudah wujud dan di-skip.`
+          : "",
+        skippedRows.length ? `${skippedRows.length} row invalid di-skip.` : "",
+        warningRows.length
+          ? `${warningRows.length} warning dibetulkan automatik.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      alert(summary);
     } catch (error: any) {
       console.error(error);
-      alert(error.message || "Ralat semasa import CSV.");
+      alert(error?.message || "Ralat semasa import CSV.");
+    } finally {
       setImporting(false);
     }
   }
@@ -1151,13 +1567,13 @@ export default function GroupMembersPage() {
       .eq("id", deactivateTarget.id)
       .eq("district_environment_id", districtEnvironmentId)
       .is("deleted_at", null);
-    
+
     if (groupId) {
       deactivateQuery = deactivateQuery.eq("group_id", groupId);
     } else {
       deactivateQuery = deactivateQuery.eq("group_name", groupName);
     }
-    
+
     const { error } = await deactivateQuery;
 
     if (error) {
@@ -1192,7 +1608,6 @@ export default function GroupMembersPage() {
 
   return (
     <DashboardLayout role="groupLeader">
-      {/* ── Header ── */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <h2 className="fw-bold mb-1">Ahli Kumpulan</h2>
@@ -1202,7 +1617,6 @@ export default function GroupMembersPage() {
         </div>
 
         <div className="d-flex gap-2 flex-wrap align-items-center">
-          {/* ── Import / Export dropdown ── */}
           <div className="dropdown">
             <button
               className="btn btn-outline-secondary dropdown-toggle"
@@ -1213,6 +1627,7 @@ export default function GroupMembersPage() {
               <i className="bi bi-arrow-down-up me-1"></i>
               Import / Export
             </button>
+
             <ul className="dropdown-menu dropdown-menu-end">
               <li>
                 <button
@@ -1223,23 +1638,30 @@ export default function GroupMembersPage() {
                   Import CSV
                 </button>
               </li>
-              <li>
-                <hr className="dropdown-divider" />
-              </li>
+
               <li>
                 <button
                   className="dropdown-item"
-                  onClick={exportMembersCSV}
+                  onClick={downloadImportTemplateCSV}
                 >
+                  <i className="bi bi-download me-2 text-primary"></i>
+                  Download Template CSV
+                </button>
+              </li>
+
+              <li>
+                <hr className="dropdown-divider" />
+              </li>
+
+              <li>
+                <button className="dropdown-item" onClick={exportMembersCSV}>
                   <i className="bi bi-file-earmark-spreadsheet me-2 text-success"></i>
                   Export CSV
                 </button>
               </li>
+
               <li>
-                <button
-                  className="dropdown-item"
-                  onClick={exportMembersPDF}
-                >
+                <button className="dropdown-item" onClick={exportMembersPDF}>
                   <i className="bi bi-file-earmark-pdf me-2 text-danger"></i>
                   Export PDF
                 </button>
@@ -1247,7 +1669,6 @@ export default function GroupMembersPage() {
             </ul>
           </div>
 
-          {/* ── Tambah Ahli ── */}
           <button className="btn btn-success" onClick={openAddModal}>
             <i className="bi bi-person-plus me-1"></i>
             Tambah Ahli
@@ -1255,7 +1676,6 @@ export default function GroupMembersPage() {
         </div>
       </div>
 
-      {/* ── Stats ── */}
       <div className="row g-3 mb-4">
         <div className="col-md-3">
           <div className="card border-0 shadow-sm rounded-4">
@@ -1296,7 +1716,6 @@ export default function GroupMembersPage() {
         </div>
       </div>
 
-      {/* ── Filters ── */}
       <div className="card border-0 shadow-sm rounded-4 mb-4">
         <div className="card-body">
           <div className="row g-3">
@@ -1370,7 +1789,6 @@ export default function GroupMembersPage() {
         </div>
       </div>
 
-      {/* ── Table ── */}
       <div className="card border-0 shadow-sm rounded-4">
         <div className="table-responsive">
           <table className="table align-middle mb-0">
@@ -1463,13 +1881,15 @@ export default function GroupMembersPage() {
                           <i className="bi bi-pencil-square text-secondary"></i>
                         </button>
 
-                        <button
-                          className="btn btn-sm btn-light border"
-                          onClick={() => openDeactivateModal(member)}
-                          title="Nyahaktif"
-                        >
-                          <i className="bi bi-person-dash text-danger"></i>
-                        </button>
+                        {normalizeStatus(member.status) === "Aktif" && (
+                          <button
+                            className="btn btn-sm btn-light border"
+                            onClick={() => openDeactivateModal(member)}
+                            title="Nyahaktif"
+                          >
+                            <i className="bi bi-person-dash text-danger"></i>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1480,7 +1900,6 @@ export default function GroupMembersPage() {
         </div>
       </div>
 
-      {/* ── Import CSV Modal ── */}
       {showImportModal && (
         <div
           className="modal d-block"
@@ -1508,36 +1927,60 @@ export default function GroupMembersPage() {
 
               <div className="modal-body">
                 <div className="alert alert-info rounded-4 small">
-                  <strong>Format header CSV:</strong>
+                  <strong>Format header CSV yang disokong:</strong>
                   <br />
                   <code>
-                    BIL,NAMA PENUH (HURUF BESAR, SEPERTI DALAM
-                    K.P.),NO. K.P.,JANTINA,KETURUNAN,TARIKH LAHIR,UNIT
-                    PENGAKAP,NO. WOSM,EMAIL
+                    BIL,NAMA PENUH (HURUF BESAR, SEPERTI DALAM K.P.),NO.
+                    K.P.,JANTINA,KETURUNAN,TARIKH LAHIR,UNIT PENGAKAP,NO.
+                    WOSM,EMAIL
                   </code>
+                  <div className="mt-2 text-muted">
+                    Sistem juga boleh detect header daripada borang rasmi
+                    walaupun header berada di tengah fail.
+                  </div>
                 </div>
 
-                <label className="form-label">Pilih Fail CSV</label>
+                <div className="d-flex justify-content-between align-items-center mb-3">
+                  <div>
+                    <label className="form-label mb-0">Pilih Fail CSV</label>
+                    <div className="small text-muted">
+                      Download template, isi data, kemudian upload semula.
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn btn-outline-success btn-sm"
+                    onClick={downloadImportTemplateCSV}
+                  >
+                    <i className="bi bi-download me-1"></i>
+                    Download Template
+                  </button>
+                </div>
+
                 <input
                   type="file"
                   className="form-control"
-                  accept=".csv"
+                  accept=".csv,.txt,text/csv,text/plain"
                   onChange={async (e) => {
                     const file = e.target.files?.[0] || null;
+
                     setCsvFile(file);
-                    if (file) {
-                      // Read text eagerly to avoid NotReadableError later
-                      try {
-                        const text = await file.text();
-                        setCsvText(text);
-                      } catch {
-                        setCsvText("");
-                        alert(
-                          "Gagal membaca fail. Sila cuba pilih fail semula."
-                        );
-                      }
-                    } else {
+
+                    if (!file) {
                       setCsvText("");
+                      return;
+                    }
+
+                    try {
+                      const text = await readFileTextSmart(file);
+                      setCsvText(text);
+                    } catch (error: any) {
+                      console.error(error);
+                      setCsvText("");
+                      alert(
+                        "Gagal membaca fail. Sila cuba pilih fail CSV semula."
+                      );
                     }
                   }}
                 />
@@ -1553,16 +1996,15 @@ export default function GroupMembersPage() {
                 <div className="small text-muted">
                   <div>Contoh data:</div>
                   <code>
-                    1,AIMAN HAKIMI BIN
-                    AZMAN,120101100001,Lelaki,Melayu,01/01/2012,Pengakap
+                    1,AIMAN HAKIM BIN ALI,120101100001,Lelaki,Melayu,01/01/2012,Pengakap
                     Kanak-Kanak,WOSM001,aiman@test.com
                   </code>
                 </div>
 
                 <div className="alert alert-warning rounded-4 small mt-3 mb-0">
                   <i className="bi bi-exclamation-triangle me-2"></i>
-                  Sila export dari Excel sebagai CSV. Elakkan comma dalam nama
-                  atau alamat.
+                  Untuk fail Excel rasmi .xlsx, sila Save As / Download as CSV
+                  dahulu sebelum upload.
                 </div>
               </div>
 
@@ -1592,7 +2034,6 @@ export default function GroupMembersPage() {
         </div>
       )}
 
-      {/* ── Add / Edit Member Modal ── */}
       {showMemberModal && (
         <div
           className="modal d-block"
@@ -1734,14 +2175,20 @@ export default function GroupMembersPage() {
 
                           <div className="col-md-4">
                             <label className="form-label">Keturunan</label>
-                            <input
-                              className="form-control"
+                            <select
+                              className="form-select"
                               value={form.race}
                               onChange={(e) =>
                                 setForm({ ...form, race: e.target.value })
                               }
-                              placeholder="Melayu"
-                            />
+                            >
+                              <option value="">Pilih Keturunan</option>
+                              {RACE_OPTIONS.map((race) => (
+                                <option key={race} value={race}>
+                                  {race}
+                                </option>
+                              ))}
+                            </select>
                           </div>
 
                           <div className="col-md-4">
@@ -1969,7 +2416,6 @@ export default function GroupMembersPage() {
         </div>
       )}
 
-      {/* ── View Member Modal ── */}
       {showViewModal && selectedMember && (
         <div
           className="modal d-block"
@@ -2122,7 +2568,6 @@ export default function GroupMembersPage() {
         </div>
       )}
 
-      {/* ── Deactivate Modal ── */}
       {showDeactivateModal && deactivateTarget && (
         <div
           className="modal d-block"

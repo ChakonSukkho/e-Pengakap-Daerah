@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabaseClient";
 
 type Member = {
   id: string;
   full_name?: string | null;
+  ic_number?: string | null;
   group_id?: string | null;
   group_name?: string | null;
   category?: string | null;
@@ -23,6 +25,7 @@ type Activity = {
   activity_name?: string | null;
   title?: string | null;
   activity_date?: string | null;
+  activity_end_at?: string | null;
   date?: string | null;
   location?: string | null;
   description?: string | null;
@@ -40,16 +43,6 @@ type AttendanceRecord = {
   activity_id?: string | null;
   member_id?: string | null;
   status?: string | null;
-  group_id?: string | null;
-  group_name?: string | null;
-  district_environment_id?: string | null;
-  deleted_at?: string | null;
-};
-
-type MemberBadge = {
-  id: string;
-  member_id?: string | null;
-  badge_id?: string | null;
   group_id?: string | null;
   group_name?: string | null;
   district_environment_id?: string | null;
@@ -122,6 +115,11 @@ function formatDate(value?: string | null) {
   });
 }
 
+function percentage(value: number, total: number) {
+  if (!total) return 0;
+  return Math.round((value / total) * 100);
+}
+
 function isUpcomingActivity(activity: Activity) {
   const dateValue = getActivityDate(activity);
   if (!dateValue) return false;
@@ -140,9 +138,22 @@ function isUpcomingActivity(activity: Activity) {
   );
 }
 
-function percentage(value: number, total: number) {
-  if (!total) return 0;
-  return Math.round((value / total) * 100);
+function getStatusBadge(status?: string | null) {
+  const value = normalizeStatus(status);
+
+  if (value === "Selesai") {
+    return "bg-success-subtle text-success border border-success-subtle";
+  }
+
+  if (value === "Dibatalkan") {
+    return "bg-danger-subtle text-danger border border-danger-subtle";
+  }
+
+  if (value === "Pendaftaran Dibuka") {
+    return "bg-info-subtle text-info border border-info-subtle";
+  }
+
+  return "bg-warning-subtle text-warning border border-warning-subtle";
 }
 
 function StatCard({
@@ -161,7 +172,7 @@ function StatCard({
   return (
     <div className="card border-0 shadow-sm rounded-4 h-100">
       <div className="card-body p-4">
-        <div className="d-flex justify-content-between align-items-start">
+        <div className="d-flex justify-content-between align-items-start gap-3">
           <div>
             <small className="text-muted">{title}</small>
             <h3 className="fw-bold mb-1">{value}</h3>
@@ -181,7 +192,8 @@ function StatCard({
 }
 
 export default function AssistantLeaderDashboard() {
-  const currentUser = getCurrentUser();
+  const navigate = useNavigate();
+  const currentUser = useMemo(() => getCurrentUser(), []);
 
   const groupId = currentUser.group_id || "";
   const groupName = currentUser.group_name || "";
@@ -191,10 +203,9 @@ export default function AssistantLeaderDashboard() {
 
   const [members, setMembers] = useState<Member[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(
-    []
-  );
-  const [memberBadges, setMemberBadges] = useState<MemberBadge[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<
+    AttendanceRecord[]
+  >([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -204,12 +215,7 @@ export default function AssistantLeaderDashboard() {
   async function fetchDashboard() {
     setLoading(true);
 
-    await Promise.all([
-      fetchMembers(),
-      fetchActivities(),
-      fetchAttendance(),
-      fetchBadges(),
-    ]);
+    await Promise.all([fetchMembers(), fetchActivities(), fetchAttendance()]);
 
     setLoading(false);
   }
@@ -224,7 +230,7 @@ export default function AssistantLeaderDashboard() {
       .from("members")
       .select("*")
       .is("deleted_at", null)
-      .order("full_name", { ascending: true });
+      .order("created_at", { ascending: false });
 
     if (groupId) {
       query = query.eq("group_id", groupId);
@@ -239,7 +245,7 @@ export default function AssistantLeaderDashboard() {
     const { data, error } = await query;
 
     if (error) {
-      console.error(error.message);
+      console.error("Members error:", error.message);
       setMembers([]);
       return;
     }
@@ -272,7 +278,7 @@ export default function AssistantLeaderDashboard() {
     const { data, error } = await query;
 
     if (error) {
-      console.error(error.message);
+      console.error("Activities error:", error.message);
       setActivities([]);
       return;
     }
@@ -286,10 +292,7 @@ export default function AssistantLeaderDashboard() {
       return;
     }
 
-    let query = supabase
-      .from("attendance")
-      .select("*")
-      .is("deleted_at", null);
+    let query = supabase.from("attendance").select("*").is("deleted_at", null);
 
     if (groupId) {
       query = query.eq("group_id", groupId);
@@ -312,38 +315,6 @@ export default function AssistantLeaderDashboard() {
     setAttendanceRecords(data || []);
   }
 
-  async function fetchBadges() {
-    if (!groupId && !groupName) {
-      setMemberBadges([]);
-      return;
-    }
-
-    let query = supabase
-      .from("member_badges")
-      .select("*")
-      .is("deleted_at", null);
-
-    if (groupId) {
-      query = query.eq("group_id", groupId);
-    } else {
-      query = query.eq("group_name", groupName);
-    }
-
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.warn("Member badges table issue:", error.message);
-      setMemberBadges([]);
-      return;
-    }
-
-    setMemberBadges(data || []);
-  }
-
   const stats = useMemo(() => {
     const activeMembers = members.filter(
       (member) => normalizeStatus(member.status) === "Aktif"
@@ -362,7 +333,12 @@ export default function AssistantLeaderDashboard() {
 
     const upcomingActivities = activities.filter(isUpcomingActivity).length;
 
+    const completedActivities = activities.filter(
+      (activity) => normalizeStatus(activity.status) === "Selesai"
+    ).length;
+
     const attendanceTotal = attendanceRecords.length;
+
     const attendancePresent = attendanceRecords.filter((record) => {
       const status = record.status || "Hadir";
       return status === "Hadir" || status === "Lewat" || status === "Bersebab";
@@ -376,10 +352,10 @@ export default function AssistantLeaderDashboard() {
       inactiveMembers,
       activitiesThisMonth,
       upcomingActivities,
+      completedActivities,
       attendancePercentage,
-      badgesAchieved: memberBadges.length,
     };
-  }, [members, activities, attendanceRecords, memberBadges]);
+  }, [members, activities, attendanceRecords]);
 
   const upcomingActivityList = useMemo(() => {
     return activities
@@ -391,6 +367,16 @@ export default function AssistantLeaderDashboard() {
       )
       .slice(0, 5);
   }, [activities]);
+
+  const latestMembers = useMemo(() => {
+    return [...members]
+      .sort(
+        (a, b) =>
+          new Date(b.created_at || "").getTime() -
+          new Date(a.created_at || "").getTime()
+      )
+      .slice(0, 5);
+  }, [members]);
 
   const membersByCategory = useMemo(() => {
     const result: Record<string, number> = {};
@@ -407,9 +393,9 @@ export default function AssistantLeaderDashboard() {
 
   const taskList = [
     "Bantu kemaskini rekod ahli kumpulan",
-    "Pantau aktiviti kumpulan akan datang",
-    "Semak maklumat ahli sebelum aktiviti",
-    "Bantu Pemimpin Kumpulan mengurus laporan asas",
+    "Bantu tambah dan kemaskini aktiviti kumpulan",
+    "Bantu rekod kehadiran aktiviti kumpulan",
+    "Pastikan data hanya melibatkan kumpulan sendiri",
   ];
 
   if (loading) {
@@ -451,7 +437,7 @@ export default function AssistantLeaderDashboard() {
             }}
           >
             <div className="card-body p-4 text-white">
-              <div className="d-flex justify-content-between align-items-start">
+              <div className="d-flex justify-content-between align-items-start gap-3">
                 <div>
                   <span className="badge bg-white text-success mb-3">
                     Penolong Pemimpin
@@ -470,7 +456,7 @@ export default function AssistantLeaderDashboard() {
                   </p>
                 </div>
 
-                <div className="bg-white bg-opacity-25 rounded-4 p-3">
+                <div className="bg-white bg-opacity-25 rounded-4 p-3 d-none d-md-block">
                   <i className="bi bi-person-check fs-1"></i>
                 </div>
               </div>
@@ -508,6 +494,32 @@ export default function AssistantLeaderDashboard() {
                   </div>
                 </div>
               </div>
+
+              <div className="d-flex flex-wrap gap-2 mt-4">
+                <button
+                  className="btn btn-light btn-sm text-success fw-semibold"
+                  onClick={() => navigate("/assistant-leader/members")}
+                >
+                  <i className="bi bi-people me-1"></i>
+                  Lihat Ahli
+                </button>
+
+                <button
+                  className="btn btn-light btn-sm text-success fw-semibold"
+                  onClick={() => navigate("/assistant-leader/activities")}
+                >
+                  <i className="bi bi-calendar-event me-1"></i>
+                  Lihat Aktiviti
+                </button>
+
+                <button
+                  className="btn btn-light btn-sm text-success fw-semibold"
+                  onClick={() => navigate("/assistant-leader/attendance")}
+                >
+                  <i className="bi bi-clipboard-check me-1"></i>
+                  Rekod Kehadiran
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -519,7 +531,7 @@ export default function AssistantLeaderDashboard() {
 
               <div className="alert alert-light border rounded-4 small mb-3">
                 <i className="bi bi-shield-check text-success me-2"></i>
-                Anda hanya boleh melihat data kumpulan sendiri sahaja.
+                Anda hanya boleh melihat dan mengurus data kumpulan sendiri.
               </div>
 
               <div className="mb-3">
@@ -577,11 +589,11 @@ export default function AssistantLeaderDashboard() {
 
         <div className="col-md-3">
           <StatCard
-            title="Lencana Dicapai"
-            value={stats.badgesAchieved}
-            subtitle="Jumlah lencana ahli kumpulan"
-            icon="bi-award"
-            colorClass="bg-info-subtle text-info"
+            title="Ahli Tidak Aktif"
+            value={stats.inactiveMembers}
+            subtitle="Tidak aktif / inactive"
+            icon="bi-person-x"
+            colorClass="bg-danger-subtle text-danger"
           />
         </div>
       </div>
@@ -590,10 +602,21 @@ export default function AssistantLeaderDashboard() {
         <div className="col-lg-8">
           <div className="card border-0 shadow-sm rounded-4 h-100">
             <div className="card-header bg-white border-0 p-4">
-              <h5 className="fw-bold mb-1">Aktiviti Akan Datang</h5>
-              <p className="text-muted small mb-0">
-                Senarai aktiviti terdekat untuk kumpulan anda.
-              </p>
+              <div className="d-flex justify-content-between align-items-center">
+                <div>
+                  <h5 className="fw-bold mb-1">Aktiviti Akan Datang</h5>
+                  <p className="text-muted small mb-0">
+                    Senarai aktiviti terdekat untuk kumpulan anda.
+                  </p>
+                </div>
+
+                <button
+                  className="btn btn-sm btn-outline-success"
+                  onClick={() => navigate("/assistant-leader/activities")}
+                >
+                  Lihat Semua
+                </button>
+              </div>
             </div>
 
             <div className="card-body p-4 pt-0">
@@ -630,7 +653,11 @@ export default function AssistantLeaderDashboard() {
                           <td>{activity.location || "-"}</td>
 
                           <td>
-                            <span className="badge rounded-pill bg-primary">
+                            <span
+                              className={`badge rounded-pill ${getStatusBadge(
+                                activity.status
+                              )}`}
+                            >
                               {normalizeStatus(activity.status)}
                             </span>
                           </td>
@@ -646,6 +673,63 @@ export default function AssistantLeaderDashboard() {
 
         <div className="col-lg-4">
           <div className="card border-0 shadow-sm rounded-4 mb-4">
+            <div className="card-header bg-white border-0 p-4">
+              <div className="d-flex justify-content-between align-items-center">
+                <div>
+                  <h5 className="fw-bold mb-1">Ahli Terbaru</h5>
+                  <p className="text-muted small mb-0">
+                    Ahli terkini dalam kumpulan.
+                  </p>
+                </div>
+
+                <button
+                  className="btn btn-sm btn-outline-success"
+                  onClick={() => navigate("/assistant-leader/members")}
+                >
+                  Lihat
+                </button>
+              </div>
+            </div>
+
+            <div className="card-body p-4 pt-0">
+              {latestMembers.length === 0 ? (
+                <div className="text-center text-muted py-4">
+                  <i className="bi bi-people fs-1 d-block mb-2"></i>
+                  Tiada ahli.
+                </div>
+              ) : (
+                <div className="d-grid gap-3">
+                  {latestMembers.map((member) => (
+                    <div
+                      key={member.id}
+                      className="d-flex justify-content-between align-items-center border rounded-4 p-3"
+                    >
+                      <div>
+                        <div className="fw-semibold">
+                          {member.full_name || "-"}
+                        </div>
+                        <small className="text-muted">
+                          {getCategory(member)}
+                        </small>
+                      </div>
+
+                      <span
+                        className={`badge rounded-pill ${
+                          normalizeStatus(member.status) === "Aktif"
+                            ? "bg-success-subtle text-success border border-success-subtle"
+                            : "bg-secondary-subtle text-secondary border border-secondary-subtle"
+                        }`}
+                      >
+                        {normalizeStatus(member.status)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="card border-0 shadow-sm rounded-4">
             <div className="card-header bg-white border-0 p-4">
               <h5 className="fw-bold mb-1">Tugasan Saya</h5>
               <p className="text-muted small mb-0">
@@ -667,10 +751,17 @@ export default function AssistantLeaderDashboard() {
               </ul>
             </div>
           </div>
+        </div>
+      </div>
 
+      <div className="row g-4 mt-1">
+        <div className="col-lg-8">
           <div className="card border-0 shadow-sm rounded-4">
             <div className="card-header bg-white border-0 p-4">
-              <h5 className="fw-bold mb-1">Taburan Unit</h5>
+              <h5 className="fw-bold mb-1">Taburan Unit Pengakap</h5>
+              <p className="text-muted small mb-0">
+                Pecahan ahli mengikut unit/kategori.
+              </p>
             </div>
 
             <div className="card-body p-4 pt-0">
@@ -702,6 +793,53 @@ export default function AssistantLeaderDashboard() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+
+        <div className="col-lg-4">
+          <div className="card border-0 shadow-sm rounded-4">
+            <div className="card-header bg-white border-0 p-4">
+              <h5 className="fw-bold mb-1">Quick Actions</h5>
+              <p className="text-muted small mb-0">
+                Akses pantas untuk tugasan harian.
+              </p>
+            </div>
+
+            <div className="card-body p-4 pt-0">
+              <div className="d-grid gap-2">
+                <button
+                  className="btn btn-success"
+                  onClick={() => navigate("/assistant-leader/members")}
+                >
+                  <i className="bi bi-person-plus me-2"></i>
+                  Urus Ahli Kumpulan
+                </button>
+
+                <button
+                  className="btn btn-outline-success"
+                  onClick={() => navigate("/assistant-leader/activities")}
+                >
+                  <i className="bi bi-calendar-plus me-2"></i>
+                  Urus Aktiviti
+                </button>
+
+                <button
+                  className="btn btn-outline-success"
+                  onClick={() => navigate("/assistant-leader/attendance")}
+                >
+                  <i className="bi bi-clipboard-check me-2"></i>
+                  Rekod Kehadiran
+                </button>
+
+                <button
+                  className="btn btn-outline-secondary"
+                  onClick={() => navigate("/assistant-leader/profile")}
+                >
+                  <i className="bi bi-person-circle me-2"></i>
+                  Profil Saya
+                </button>
+              </div>
             </div>
           </div>
         </div>

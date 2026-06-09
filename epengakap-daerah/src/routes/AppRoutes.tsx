@@ -32,6 +32,7 @@ import AssistantCommissionerActivitiesPage from "../pages/assistantCommissioner/
 import AssistantCommissionerProfilePage from "../pages/assistantCommissioner/AssistantCommissionerProfilePage";
 import ACUserManagementPage from "../pages/assistantCommissioner/ACUserManagementPage";
 
+
 import GroupLeaderDashboard from "../pages/groupLeader/GroupLeaderDashboard";
 import GroupMembersPage from "../pages/groupLeader/GroupMembersPage";
 import ActivitiesPage from "../pages/groupLeader/ActivitiesPage";
@@ -43,6 +44,7 @@ import BadgesPage from "../pages/groupLeader/BadgesPage";
 import AssistantLeaderDashboard from "../pages/assistantLeader/AssistantLeaderDashboard";
 import AssistantMembersPage from "../pages/assistantLeader/AssistantMembersPage";
 import AssistantActivitiesPage from "../pages/assistantLeader/AssistantActivitiesPage";
+import AssistantAttendancePage from "../pages/assistantLeader/AssistantAttendancePage";
 import AssistantProfilePage from "../pages/assistantLeader/AssistantProfilePage";
 
 import ProtectedRoute from "./ProtectedRoute";
@@ -220,6 +222,15 @@ export default function AppRoutes() {
       <Route
         path="/assistant-commissioner/groups"
         element={protect(ASSISTANT_COMMISSIONER, <ACGroupManagementPage />)}
+      />
+
+      <Route
+        path="/assistant-leader/attendance"
+        element={
+          <ProtectedRoute allowedRoles={["Penolong Pemimpin"]}>
+            <AssistantAttendancePage />
+          </ProtectedRoute>
+        }
       />
 
       <Route

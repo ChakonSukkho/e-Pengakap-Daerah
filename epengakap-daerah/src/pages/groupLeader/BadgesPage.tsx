@@ -15,6 +15,7 @@ type Member = {
   status?: string | null;
   district?: string | null;
   district_environment_id?: string | null;
+  deleted_at?: string | null;
 };
 
 type BadgeType = {
@@ -23,6 +24,7 @@ type BadgeType = {
   badge_level: string;
   description: string | null;
   status?: string | null;
+  deleted_at?: string | null;
 };
 
 type MemberBadge = {
@@ -38,6 +40,8 @@ type MemberBadge = {
   district_environment_id?: string | null;
   group_id?: string | null;
   group_name?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
   members?: Member | null;
   badge_types?: BadgeType | null;
 };
@@ -59,15 +63,17 @@ const LEVEL_OPTIONS = ["Semua Tahap", "Asas", "Pertengahan", "Lanjutan"];
 function getCurrentUser(): CurrentUser {
   try {
     return JSON.parse(
-      localStorage.getItem("user") || localStorage.getItem("auth_user") || "{}"
+      localStorage.getItem("user") ||
+        localStorage.getItem("auth_user") ||
+        "{}"
     );
   } catch {
     return {};
   }
 }
 
-function getInitials(name: string) {
-  return name
+function getInitials(name?: string | null) {
+  return String(name || "-")
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
@@ -112,12 +118,17 @@ function percent(value: number, total: number) {
   return Math.round((value / total) * 100);
 }
 
-async function addAuditLog(action: string, description: string, recordId?: string | null) {
+async function addAuditLog(
+  action: string,
+  description: string,
+  recordId?: string | null
+) {
   try {
     const currentUser = getCurrentUser();
 
     await supabase.from("audit_logs").insert({
-      actor_name: currentUser.full_name || currentUser.name || "Pemimpin Kumpulan",
+      actor_name:
+        currentUser.full_name || currentUser.name || "Pemimpin Kumpulan",
       actor_role: currentUser.role || "Pemimpin Kumpulan",
       action,
       module: "Lencana & Pencapaian",
@@ -158,7 +169,8 @@ export default function BadgesPage() {
   const [showCancelModal, setShowCancelModal] = useState(false);
 
   const [selectedAward, setSelectedAward] = useState<MemberBadge | null>(null);
-  const [selectedHistoryMember, setSelectedHistoryMember] = useState<Member | null>(null);
+  const [selectedHistoryMember, setSelectedHistoryMember] =
+    useState<Member | null>(null);
   const [cancelTarget, setCancelTarget] = useState<MemberBadge | null>(null);
   const [cancelReason, setCancelReason] = useState("");
 
@@ -193,7 +205,7 @@ export default function BadgesPage() {
 
     if (groupId) {
       query = query.eq("group_id", groupId);
-    } else if (groupName) {
+    } else {
       query = query.eq("group_name", groupName);
     }
 
@@ -209,13 +221,19 @@ export default function BadgesPage() {
       return;
     }
 
-    setMembers(data || []);
+    const activeMembers = (data || []).filter((member) => {
+      const status = String(member.status || "Aktif").toLowerCase();
+      return status === "aktif" || status === "active";
+    });
+
+    setMembers(activeMembers);
   }
 
   async function fetchBadgeTypes() {
     const { data, error } = await supabase
       .from("badge_types")
       .select("*")
+      .is("deleted_at", null)
       .order("badge_level", { ascending: true })
       .order("badge_name", { ascending: true });
 
@@ -247,7 +265,7 @@ export default function BadgesPage() {
 
     if (groupId) {
       query = query.eq("group_id", groupId);
-    } else if (groupName) {
+    } else {
       query = query.eq("group_name", groupName);
     }
 
@@ -270,8 +288,13 @@ export default function BadgesPage() {
       return;
     }
 
-    const memberIds = [...new Set(awards.map((item) => item.member_id).filter(Boolean))];
-    const badgeIds = [...new Set(awards.map((item) => item.badge_id).filter(Boolean))];
+    const memberIds = [
+      ...new Set(awards.map((item) => item.member_id).filter(Boolean)),
+    ];
+
+    const badgeIds = [
+      ...new Set(awards.map((item) => item.badge_id).filter(Boolean)),
+    ];
 
     const [{ data: membersData, error: membersError }, { data: badgesData, error: badgesError }] =
       await Promise.all([
@@ -282,25 +305,30 @@ export default function BadgesPage() {
                 .select("*")
                 .in("id", memberIds)
                 .is("deleted_at", null);
-          
+
               if (groupId) {
                 memberQuery = memberQuery.eq("group_id", groupId);
               } else {
                 memberQuery = memberQuery.eq("group_name", groupName);
               }
-            
+
               if (districtEnvironmentId) {
                 memberQuery = memberQuery.eq(
                   "district_environment_id",
                   districtEnvironmentId
                 );
               }
-            
+
               return memberQuery;
             })()
           : Promise.resolve({ data: [], error: null } as any),
+
         badgeIds.length > 0
-          ? supabase.from("badge_types").select("*").in("id", badgeIds)
+          ? supabase
+              .from("badge_types")
+              .select("*")
+              .in("id", badgeIds)
+              .is("deleted_at", null)
           : Promise.resolve({ data: [], error: null } as any),
       ]);
 
@@ -316,8 +344,13 @@ export default function BadgesPage() {
       return;
     }
 
-    const memberMap = new Map((membersData || []).map((member: Member) => [member.id, member]));
-    const badgeMap = new Map((badgesData || []).map((badge: BadgeType) => [badge.id, badge]));
+    const memberMap = new Map(
+      (membersData || []).map((member: Member) => [member.id, member])
+    );
+
+    const badgeMap = new Map(
+      (badgesData || []).map((badge: BadgeType) => [badge.id, badge])
+    );
 
     const mergedAwards = awards.map((award) => ({
       ...award,
@@ -344,8 +377,11 @@ export default function BadgesPage() {
         badgeLevel.toLowerCase().includes(keyword) ||
         notes.toLowerCase().includes(keyword);
 
-      const matchLevel = levelFilter === "Semua Tahap" || badgeLevel === levelFilter;
-      const matchMember = memberFilter === "Semua Ahli" || award.member_id === memberFilter;
+      const matchLevel =
+        levelFilter === "Semua Tahap" || badgeLevel === levelFilter;
+
+      const matchMember =
+        memberFilter === "Semua Ahli" || award.member_id === memberFilter;
 
       return matchSearch && matchLevel && matchMember;
     });
@@ -361,24 +397,30 @@ export default function BadgesPage() {
     const memberBadgeCount: Record<string, number> = {};
 
     memberBadges.forEach((item) => {
-      memberBadgeCount[item.member_id] = (memberBadgeCount[item.member_id] || 0) + 1;
+      memberBadgeCount[item.member_id] =
+        (memberBadgeCount[item.member_id] || 0) + 1;
     });
 
-    const excellentMembers = Object.values(memberBadgeCount).filter((count) => count >= 3).length;
+    const excellentMembers = Object.values(memberBadgeCount).filter(
+      (count) => count >= 3
+    ).length;
+
     const uniqueAwardedMembers = Object.keys(memberBadgeCount).length;
 
     return {
       totalAwarded: memberBadges.length,
       thisMonth,
       excellentMembers,
-      badgeTypes: badgeTypes.length,
       uniqueAwardedMembers,
+      badgeTypes: badgeTypes.length,
     };
   }, [memberBadges, badgeTypes]);
 
   const progressByBadge = useMemo(() => {
     return badgeTypes.map((badge) => {
-      const earned = memberBadges.filter((item) => item.badge_id === badge.id).length;
+      const earned = memberBadges.filter(
+        (item) => item.badge_id === badge.id
+      ).length;
 
       return {
         ...badge,
@@ -411,7 +453,9 @@ export default function BadgesPage() {
   const memberProgress = useMemo(() => {
     return members
       .map((member) => {
-        const earnedBadges = memberBadges.filter((award) => award.member_id === member.id);
+        const earnedBadges = memberBadges.filter(
+          (award) => award.member_id === member.id
+        );
 
         return {
           member,
@@ -421,12 +465,19 @@ export default function BadgesPage() {
           awards: earnedBadges,
         };
       })
-      .sort((a, b) => b.count - a.count || String(a.member.full_name).localeCompare(String(b.member.full_name)));
+      .sort(
+        (a, b) =>
+          b.count - a.count ||
+          String(a.member.full_name).localeCompare(String(b.member.full_name))
+      );
   }, [members, memberBadges, badgeTypes]);
 
   const selectedMemberAwards = useMemo(() => {
     if (!selectedHistoryMember) return [];
-    return memberBadges.filter((award) => award.member_id === selectedHistoryMember.id);
+
+    return memberBadges.filter(
+      (award) => award.member_id === selectedHistoryMember.id
+    );
   }, [memberBadges, selectedHistoryMember]);
 
   function resetForm() {
@@ -449,7 +500,7 @@ export default function BadgesPage() {
 
     if (groupId) {
       query = query.eq("group_id", groupId);
-    } else if (groupName) {
+    } else {
       query = query.eq("group_name", groupName);
     }
 
@@ -483,36 +534,13 @@ export default function BadgesPage() {
       return;
     }
 
-    const selectedMember = members.find((member) => member.id === form.member_id);
-    const selectedBadge = badgeTypes.find((badge) => badge.id === form.badge_id);
+    const selectedMember = members.find(
+      (member) => member.id === form.member_id
+    );
 
-    if (
-      selectedMember &&
-      districtEnvironmentId &&
-      selectedMember.district_environment_id !== districtEnvironmentId
-    ) {
-      alert("Ahli ini bukan dalam daerah anda.");
-      return;
-    }
-
-    if (
-      selectedMember &&
-      groupId &&
-      selectedMember.group_id !== groupId
-    ) {
-      alert("Ahli ini bukan dalam kumpulan anda.");
-      return;
-    }
-
-    if (
-      selectedMember &&
-      !groupId &&
-      groupName &&
-      selectedMember.group_name !== groupName
-    ) {
-      alert("Ahli ini bukan dalam kumpulan anda.");
-      return;
-    }
+    const selectedBadge = badgeTypes.find(
+      (badge) => badge.id === form.badge_id
+    );
 
     if (!selectedMember) {
       alert("Ahli tidak dijumpai.");
@@ -521,6 +549,24 @@ export default function BadgesPage() {
 
     if (!selectedBadge) {
       alert("Lencana tidak dijumpai.");
+      return;
+    }
+
+    if (
+      districtEnvironmentId &&
+      selectedMember.district_environment_id !== districtEnvironmentId
+    ) {
+      alert("Ahli ini bukan dalam daerah anda.");
+      return;
+    }
+
+    if (groupId && selectedMember.group_id !== groupId) {
+      alert("Ahli ini bukan dalam kumpulan anda.");
+      return;
+    }
+
+    if (!groupId && groupName && selectedMember.group_name !== groupName) {
+      alert("Ahli ini bukan dalam kumpulan anda.");
       return;
     }
 
@@ -536,15 +582,17 @@ export default function BadgesPage() {
     const payload = {
       member_id: form.member_id,
       badge_id: form.badge_id,
-      awarded_by: currentUser.full_name || currentUser.name || "Pemimpin Kumpulan",
+      awarded_by:
+        currentUser.full_name || currentUser.name || "Pemimpin Kumpulan",
       awarded_date: form.awarded_date,
       notes: form.notes.trim() || null,
       status: "Aktif",
       deleted_at: null,
-      district: district || null,
-      district_environment_id: districtEnvironmentId || null,
-      group_id: groupId || null,
-      group_name: groupName || null,
+      district: district || selectedMember.district || null,
+      district_environment_id:
+        districtEnvironmentId || selectedMember.district_environment_id || null,
+      group_id: groupId || selectedMember.group_id || null,
+      group_name: groupName || selectedMember.group_name || null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -563,7 +611,9 @@ export default function BadgesPage() {
 
     await addAuditLog(
       "CREATE",
-      `Anugerah lencana ${selectedBadge.badge_name} kepada ${selectedMember.full_name}`,
+      `Anugerah lencana ${selectedBadge.badge_name} kepada ${
+        selectedMember.full_name || "-"
+      }`,
       data?.id || null
     );
 
@@ -598,7 +648,7 @@ export default function BadgesPage() {
       .eq("id", cancelTarget.id)
       .eq("district_environment_id", districtEnvironmentId)
       .is("deleted_at", null);
-    
+
     if (groupId) {
       cancelQuery = cancelQuery.eq("group_id", groupId);
     } else {
@@ -615,7 +665,9 @@ export default function BadgesPage() {
 
     await addAuditLog(
       "UPDATE",
-      `Batal lencana ${cancelTarget.badge_types?.badge_name || "-"} untuk ${cancelTarget.members?.full_name || "-"}`,
+      `Batal lencana ${cancelTarget.badge_types?.badge_name || "-"} untuk ${
+        cancelTarget.members?.full_name || "-"
+      }`,
       cancelTarget.id
     );
 
@@ -671,10 +723,15 @@ export default function BadgesPage() {
     ]);
 
     const csvContent = [headers, ...rows]
-      .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","))
+      .map((row) =>
+        row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")
+      )
       .join("\n");
 
-    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["\ufeff" + csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
 
@@ -748,7 +805,10 @@ export default function BadgesPage() {
               </tr>
             </thead>
             <tbody>
-              ${rows || `<tr><td colspan="8" class="empty">Tiada rekod lencana.</td></tr>`}
+              ${
+                rows ||
+                `<tr><td colspan="8" class="empty">Tiada rekod lencana.</td></tr>`
+              }
             </tbody>
           </table>
           <script>
@@ -768,7 +828,8 @@ export default function BadgesPage() {
       <DashboardLayout role="groupLeader">
         <div className="alert alert-warning rounded-4">
           <i className="bi bi-exclamation-triangle me-2"></i>
-          Akaun anda belum dipautkan dengan kumpulan. Sila hubungi Pesuruhjaya Daerah untuk kemaskini kumpulan anda.
+          Akaun anda belum dipautkan dengan kumpulan. Sila hubungi Pesuruhjaya
+          Daerah untuk kemaskini kumpulan anda.
         </div>
       </DashboardLayout>
     );
@@ -780,7 +841,8 @@ export default function BadgesPage() {
         <div>
           <h2 className="fw-bold mb-1">Lencana & Pencapaian</h2>
           <p className="text-muted mb-0">
-            Jejaki pencapaian ahli untuk kumpulan <strong>{groupName || "-"}</strong>.
+            Jejaki pencapaian ahli untuk kumpulan{" "}
+            <strong>{groupName || "-"}</strong>.
           </p>
         </div>
 
@@ -795,7 +857,7 @@ export default function BadgesPage() {
               <i className="bi bi-download me-1"></i>
               Export
             </button>
-          
+
             <ul className="dropdown-menu dropdown-menu-end">
               <li>
                 <button className="dropdown-item" onClick={exportAwardsCSV}>
@@ -803,7 +865,7 @@ export default function BadgesPage() {
                   Export CSV
                 </button>
               </li>
-          
+
               <li>
                 <button className="dropdown-item" onClick={exportAwardsPDF}>
                   <i className="bi bi-file-earmark-pdf me-2 text-danger"></i>
@@ -812,7 +874,7 @@ export default function BadgesPage() {
               </li>
             </ul>
           </div>
-          
+
           <button
             className="btn btn-success"
             onClick={() => setShowAwardModal(true)}
@@ -846,7 +908,9 @@ export default function BadgesPage() {
           <div className="card border-0 shadow-sm rounded-4">
             <div className="card-body">
               <small className="text-muted">Ahli Cemerlang</small>
-              <h3 className="fw-bold text-success mb-0">{stats.excellentMembers}</h3>
+              <h3 className="fw-bold text-success mb-0">
+                {stats.excellentMembers}
+              </h3>
               <small className="text-muted">3 lencana ke atas</small>
             </div>
           </div>
@@ -880,7 +944,11 @@ export default function BadgesPage() {
             </div>
 
             <div className="col-md-3">
-              <select className="form-select" value={memberFilter} onChange={(e) => setMemberFilter(e.target.value)}>
+              <select
+                className="form-select"
+                value={memberFilter}
+                onChange={(e) => setMemberFilter(e.target.value)}
+              >
                 <option>Semua Ahli</option>
                 {members.map((member) => (
                   <option key={member.id} value={member.id}>
@@ -891,7 +959,11 @@ export default function BadgesPage() {
             </div>
 
             <div className="col-md-2">
-              <select className="form-select" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
+              <select
+                className="form-select"
+                value={levelFilter}
+                onChange={(e) => setLevelFilter(e.target.value)}
+              >
                 {LEVEL_OPTIONS.map((level) => (
                   <option key={level}>{level}</option>
                 ))}
@@ -919,7 +991,9 @@ export default function BadgesPage() {
           <div className="card border-0 shadow-sm rounded-4 h-100">
             <div className="card-header bg-white border-0 p-4">
               <h5 className="fw-bold mb-1">Kemajuan Lencana</h5>
-              <p className="text-muted small mb-0">Peratus ahli yang sudah menerima setiap lencana.</p>
+              <p className="text-muted small mb-0">
+                Peratus ahli yang sudah menerima setiap lencana.
+              </p>
             </div>
 
             <div className="card-body p-4 pt-0">
@@ -938,22 +1012,36 @@ export default function BadgesPage() {
                     <div key={badge.id}>
                       <div className="d-flex justify-content-between align-items-center mb-2">
                         <div>
-                          <span className="fw-semibold">{badge.badge_name}</span>
-                          <span className={`badge rounded-pill ms-2 ${badgeTone(badge.badge_level)}`}>
+                          <span className="fw-semibold">
+                            {badge.badge_name}
+                          </span>
+                          <span
+                            className={`badge rounded-pill ms-2 ${badgeTone(
+                              badge.badge_level
+                            )}`}
+                          >
                             {badge.badge_level}
                           </span>
                         </div>
 
                         <small className="text-muted">
-                          {badge.earned}/{badge.totalMembers} ({badge.progress}%)
+                          {badge.earned}/{badge.totalMembers} ({badge.progress}
+                          %)
                         </small>
                       </div>
 
                       <div className="progress rounded-pill" style={{ height: 9 }}>
-                        <div className="progress-bar bg-success" style={{ width: `${badge.progress}%` }}></div>
+                        <div
+                          className="progress-bar bg-success"
+                          style={{ width: `${badge.progress}%` }}
+                        ></div>
                       </div>
 
-                      {badge.description && <small className="text-muted d-block mt-1">{badge.description}</small>}
+                      {badge.description && (
+                        <small className="text-muted d-block mt-1">
+                          {badge.description}
+                        </small>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -966,7 +1054,9 @@ export default function BadgesPage() {
           <div className="card border-0 shadow-sm rounded-4 h-100">
             <div className="card-header bg-white border-0 p-4">
               <h5 className="fw-bold mb-1">Ahli Paling Banyak Lencana</h5>
-              <p className="text-muted small mb-0">Top 5 ahli berdasarkan jumlah lencana.</p>
+              <p className="text-muted small mb-0">
+                Top 5 ahli berdasarkan jumlah lencana.
+              </p>
             </div>
 
             <div className="card-body p-4 pt-0">
@@ -978,7 +1068,10 @@ export default function BadgesPage() {
               ) : (
                 <div className="d-grid gap-3">
                   {topMembers.map((item, index) => (
-                    <div key={item.member?.id || index} className="border rounded-4 p-3 d-flex align-items-center gap-3">
+                    <div
+                      key={item.member?.id || index}
+                      className="border rounded-4 p-3 d-flex align-items-center gap-3"
+                    >
                       <div
                         className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold"
                         style={{ width: 42, height: 42 }}
@@ -987,11 +1080,17 @@ export default function BadgesPage() {
                       </div>
 
                       <div className="flex-grow-1">
-                        <div className="fw-semibold">{item.member?.full_name || "-"}</div>
-                        <small className="text-muted">{getMemberUnit(item.member)}</small>
+                        <div className="fw-semibold">
+                          {item.member?.full_name || "-"}
+                        </div>
+                        <small className="text-muted">
+                          {getMemberUnit(item.member)}
+                        </small>
                       </div>
 
-                      <span className="badge rounded-pill bg-warning text-dark">{item.count} lencana</span>
+                      <span className="badge rounded-pill bg-warning text-dark">
+                        {item.count} lencana
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -1004,12 +1103,16 @@ export default function BadgesPage() {
       <div className="card border-0 shadow-sm rounded-4 mb-4">
         <div className="card-header bg-white border-0 p-4">
           <h5 className="fw-bold mb-1">Kemajuan Mengikut Ahli</h5>
-          <p className="text-muted small mb-0">Klik Sejarah untuk lihat semua lencana ahli.</p>
+          <p className="text-muted small mb-0">
+            Klik Sejarah untuk lihat semua lencana ahli.
+          </p>
         </div>
 
         <div className="card-body p-4 pt-0">
           {memberProgress.length === 0 ? (
-            <div className="text-muted text-center py-4">Tiada ahli dalam kumpulan ini.</div>
+            <div className="text-muted text-center py-4">
+              Tiada ahli dalam kumpulan ini.
+            </div>
           ) : (
             <div className="row g-3">
               {memberProgress.slice(0, 6).map((item) => (
@@ -1020,25 +1123,38 @@ export default function BadgesPage() {
                         className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold"
                         style={{ width: 42, height: 42 }}
                       >
-                        {getInitials(item.member.full_name || "-")}
+                        {getInitials(item.member.full_name)}
                       </div>
 
                       <div className="flex-grow-1">
-                        <div className="fw-semibold">{item.member.full_name || "-"}</div>
-                        <small className="text-muted">{getMemberUnit(item.member)}</small>
+                        <div className="fw-semibold">
+                          {item.member.full_name || "-"}
+                        </div>
+                        <small className="text-muted">
+                          {getMemberUnit(item.member)}
+                        </small>
                       </div>
 
-                      <button className="btn btn-sm btn-outline-success" onClick={() => openMemberHistory(item.member)}>
+                      <button
+                        className="btn btn-sm btn-outline-success"
+                        onClick={() => openMemberHistory(item.member)}
+                      >
                         Sejarah
                       </button>
                     </div>
 
                     <div className="d-flex justify-content-between small text-muted mb-1">
-                      <span>{item.count}/{item.total} lencana</span>
+                      <span>
+                        {item.count}/{item.total} lencana
+                      </span>
                       <span>{item.progress}%</span>
                     </div>
+
                     <div className="progress rounded-pill" style={{ height: 8 }}>
-                      <div className="progress-bar bg-success" style={{ width: `${item.progress}%` }}></div>
+                      <div
+                        className="progress-bar bg-success"
+                        style={{ width: `${item.progress}%` }}
+                      ></div>
                     </div>
                   </div>
                 </div>
@@ -1051,7 +1167,9 @@ export default function BadgesPage() {
       <div className="card border-0 shadow-sm rounded-4">
         <div className="card-header bg-white border-0 p-4">
           <h5 className="fw-bold mb-1">Senarai Anugerah Lencana</h5>
-          <p className="text-muted small mb-0">Rekod lencana yang dianugerahkan kepada ahli kumpulan.</p>
+          <p className="text-muted small mb-0">
+            Rekod lencana yang dianugerahkan kepada ahli kumpulan.
+          </p>
         </div>
 
         <div className="table-responsive">
@@ -1072,7 +1190,9 @@ export default function BadgesPage() {
                 <tr>
                   <td colSpan={6} className="text-center py-5">
                     <div className="spinner-border text-success"></div>
-                    <p className="text-muted mt-3 mb-0">Memuatkan rekod lencana...</p>
+                    <p className="text-muted mt-3 mb-0">
+                      Memuatkan rekod lencana...
+                    </p>
                   </td>
                 </tr>
               ) : filteredAwards.length === 0 ? (
@@ -1091,33 +1211,55 @@ export default function BadgesPage() {
                           className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold"
                           style={{ width: 40, height: 40 }}
                         >
-                          {getInitials(award.members?.full_name || "-")}
+                          {getInitials(award.members?.full_name)}
                         </div>
 
                         <div>
-                          <div className="fw-semibold">{award.members?.full_name || "-"}</div>
-                          <small className="text-muted">{getMemberUnit(award.members)}</small>
+                          <div className="fw-semibold">
+                            {award.members?.full_name || "-"}
+                          </div>
+                          <small className="text-muted">
+                            {getMemberUnit(award.members)}
+                          </small>
                         </div>
                       </div>
                     </td>
 
-                    <td className="px-4 py-3">{award.badge_types?.badge_name || "-"}</td>
+                    <td className="px-4 py-3">
+                      {award.badge_types?.badge_name || "-"}
+                    </td>
 
                     <td className="px-4 py-3">
-                      <span className={`badge rounded-pill ${badgeTone(award.badge_types?.badge_level)}`}>
+                      <span
+                        className={`badge rounded-pill ${badgeTone(
+                          award.badge_types?.badge_level
+                        )}`}
+                      >
                         {award.badge_types?.badge_level || "-"}
                       </span>
                     </td>
 
-                    <td className="px-4 py-3">{formatDate(award.awarded_date)}</td>
+                    <td className="px-4 py-3">
+                      {formatDate(award.awarded_date)}
+                    </td>
+
                     <td className="px-4 py-3">{award.awarded_by || "-"}</td>
 
                     <td className="px-4 py-3 text-end">
                       <div className="btn-group btn-group-sm">
-                        <button className="btn btn-light border" onClick={() => openViewAward(award)} title="Lihat">
+                        <button
+                          className="btn btn-light border"
+                          onClick={() => openViewAward(award)}
+                          title="Lihat"
+                        >
                           <i className="bi bi-eye text-primary"></i>
                         </button>
-                        <button className="btn btn-light border" onClick={() => openCancelAward(award)} title="Batal Lencana">
+
+                        <button
+                          className="btn btn-light border"
+                          onClick={() => openCancelAward(award)}
+                          title="Batal Lencana"
+                        >
                           <i className="bi bi-x-circle text-danger"></i>
                         </button>
                       </div>
@@ -1137,7 +1279,9 @@ export default function BadgesPage() {
               <div className="modal-header">
                 <div>
                   <h5 className="modal-title fw-bold">Anugerah Lencana</h5>
-                  <small className="text-muted">Pilih ahli dan lencana yang ingin dianugerahkan.</small>
+                  <small className="text-muted">
+                    Pilih ahli dan lencana yang ingin dianugerahkan.
+                  </small>
                 </div>
 
                 <button
@@ -1153,7 +1297,13 @@ export default function BadgesPage() {
                 <div className="row g-3">
                   <div className="col-md-6">
                     <label className="form-label">Ahli</label>
-                    <select className="form-select" value={form.member_id} onChange={(e) => setForm({ ...form, member_id: e.target.value })}>
+                    <select
+                      className="form-select"
+                      value={form.member_id}
+                      onChange={(e) =>
+                        setForm({ ...form, member_id: e.target.value })
+                      }
+                    >
                       <option value="">Pilih Ahli</option>
                       {members.map((member) => (
                         <option key={member.id} value={member.id}>
@@ -1165,7 +1315,13 @@ export default function BadgesPage() {
 
                   <div className="col-md-6">
                     <label className="form-label">Lencana</label>
-                    <select className="form-select" value={form.badge_id} onChange={(e) => setForm({ ...form, badge_id: e.target.value })}>
+                    <select
+                      className="form-select"
+                      value={form.badge_id}
+                      onChange={(e) =>
+                        setForm({ ...form, badge_id: e.target.value })
+                      }
+                    >
                       <option value="">Pilih Lencana</option>
                       {badgeTypes.map((badge) => (
                         <option key={badge.id} value={badge.id}>
@@ -1181,7 +1337,9 @@ export default function BadgesPage() {
                       type="date"
                       className="form-control"
                       value={form.awarded_date}
-                      onChange={(e) => setForm({ ...form, awarded_date: e.target.value })}
+                      onChange={(e) =>
+                        setForm({ ...form, awarded_date: e.target.value })
+                      }
                     />
                   </div>
 
@@ -1191,7 +1349,9 @@ export default function BadgesPage() {
                       className="form-control"
                       rows={3}
                       value={form.notes}
-                      onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                      onChange={(e) =>
+                        setForm({ ...form, notes: e.target.value })
+                      }
                       placeholder="Contoh: Lulus ujian praktikal dengan baik"
                     ></textarea>
                   </div>
@@ -1199,7 +1359,8 @@ export default function BadgesPage() {
 
                 <div className="alert alert-info rounded-4 small mt-4 mb-0">
                   <i className="bi bi-info-circle me-2"></i>
-                  Lencana akan direkodkan untuk ahli dalam kumpulan <strong>{groupName}</strong> sahaja.
+                  Lencana akan direkodkan untuk ahli dalam kumpulan{" "}
+                  <strong>{groupName}</strong> sahaja.
                 </div>
               </div>
 
@@ -1215,7 +1376,11 @@ export default function BadgesPage() {
                   Batal
                 </button>
 
-                <button className="btn btn-success" onClick={awardBadge} disabled={saving}>
+                <button
+                  className="btn btn-success"
+                  onClick={awardBadge}
+                  disabled={saving}
+                >
                   {saving ? "Menyimpan..." : "Simpan Anugerah"}
                 </button>
               </div>
@@ -1248,8 +1413,15 @@ export default function BadgesPage() {
                     <i className="bi bi-medal fs-2"></i>
                   </div>
 
-                  <h5 className="fw-bold mb-1">{selectedAward.badge_types?.badge_name || "-"}</h5>
-                  <span className={`badge rounded-pill ${badgeTone(selectedAward.badge_types?.badge_level)}`}>
+                  <h5 className="fw-bold mb-1">
+                    {selectedAward.badge_types?.badge_name || "-"}
+                  </h5>
+
+                  <span
+                    className={`badge rounded-pill ${badgeTone(
+                      selectedAward.badge_types?.badge_level
+                    )}`}
+                  >
                     {selectedAward.badge_types?.badge_level || "-"}
                   </span>
                 </div>
@@ -1305,8 +1477,11 @@ export default function BadgesPage() {
               <div className="modal-header">
                 <div>
                   <h5 className="modal-title fw-bold">Sejarah Lencana Ahli</h5>
-                  <small className="text-muted">{selectedHistoryMember.full_name || "-"}</small>
+                  <small className="text-muted">
+                    {selectedHistoryMember.full_name || "-"}
+                  </small>
                 </div>
+
                 <button
                   className="btn-close"
                   onClick={() => {
@@ -1319,11 +1494,24 @@ export default function BadgesPage() {
               <div className="modal-body p-4">
                 <div className="mb-4">
                   <div className="d-flex justify-content-between small text-muted mb-1">
-                    <span>{selectedMemberAwards.length}/{badgeTypes.length} lencana</span>
-                    <span>{percent(selectedMemberAwards.length, badgeTypes.length)}%</span>
+                    <span>
+                      {selectedMemberAwards.length}/{badgeTypes.length} lencana
+                    </span>
+                    <span>
+                      {percent(selectedMemberAwards.length, badgeTypes.length)}%
+                    </span>
                   </div>
+
                   <div className="progress rounded-pill" style={{ height: 9 }}>
-                    <div className="progress-bar bg-success" style={{ width: `${percent(selectedMemberAwards.length, badgeTypes.length)}%` }}></div>
+                    <div
+                      className="progress-bar bg-success"
+                      style={{
+                        width: `${percent(
+                          selectedMemberAwards.length,
+                          badgeTypes.length
+                        )}%`,
+                      }}
+                    ></div>
                   </div>
                 </div>
 
@@ -1335,12 +1523,25 @@ export default function BadgesPage() {
                 ) : (
                   <div className="list-group">
                     {selectedMemberAwards.map((award) => (
-                      <div key={award.id} className="list-group-item d-flex justify-content-between align-items-center">
+                      <div
+                        key={award.id}
+                        className="list-group-item d-flex justify-content-between align-items-center"
+                      >
                         <div>
-                          <div className="fw-semibold">{award.badge_types?.badge_name || "-"}</div>
-                          <small className="text-muted">{formatDate(award.awarded_date)} • {award.awarded_by || "-"}</small>
+                          <div className="fw-semibold">
+                            {award.badge_types?.badge_name || "-"}
+                          </div>
+                          <small className="text-muted">
+                            {formatDate(award.awarded_date)} •{" "}
+                            {award.awarded_by || "-"}
+                          </small>
                         </div>
-                        <span className={`badge rounded-pill ${badgeTone(award.badge_types?.badge_level)}`}>
+
+                        <span
+                          className={`badge rounded-pill ${badgeTone(
+                            award.badge_types?.badge_level
+                          )}`}
+                        >
                           {award.badge_types?.badge_level || "-"}
                         </span>
                       </div>
@@ -1370,7 +1571,10 @@ export default function BadgesPage() {
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
-                <h5 className="modal-title fw-bold text-danger">Batal Lencana</h5>
+                <h5 className="modal-title fw-bold text-danger">
+                  Batal Lencana
+                </h5>
+
                 <button
                   className="btn-close"
                   onClick={() => {
@@ -1384,17 +1588,26 @@ export default function BadgesPage() {
               <div className="modal-body p-4">
                 <div className="alert alert-warning rounded-4">
                   <i className="bi bi-exclamation-triangle me-2"></i>
-                  Tindakan ini akan menyembunyikan rekod lencana daripada senarai aktif, tetapi rekod tidak dipadam secara kekal.
+                  Tindakan ini akan menyembunyikan rekod lencana daripada
+                  senarai aktif, tetapi rekod tidak dipadam secara kekal.
                 </div>
 
                 <div className="mb-3">
                   <label className="form-label">Ahli</label>
-                  <input className="form-control" value={cancelTarget.members?.full_name || "-"} disabled />
+                  <input
+                    className="form-control"
+                    value={cancelTarget.members?.full_name || "-"}
+                    disabled
+                  />
                 </div>
 
                 <div className="mb-3">
                   <label className="form-label">Lencana</label>
-                  <input className="form-control" value={cancelTarget.badge_types?.badge_name || "-"} disabled />
+                  <input
+                    className="form-control"
+                    value={cancelTarget.badge_types?.badge_name || "-"}
+                    disabled
+                  />
                 </div>
 
                 <div>
@@ -1421,7 +1634,12 @@ export default function BadgesPage() {
                 >
                   Tutup
                 </button>
-                <button className="btn btn-danger" onClick={cancelAward} disabled={saving}>
+
+                <button
+                  className="btn btn-danger"
+                  onClick={cancelAward}
+                  disabled={saving}
+                >
                   {saving ? "Membatalkan..." : "Ya, Batal Lencana"}
                 </button>
               </div>
