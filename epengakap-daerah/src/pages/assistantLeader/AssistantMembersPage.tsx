@@ -4,6 +4,7 @@ import { supabase } from "../../services/supabaseClient";
 
 type Member = {
   id: string;
+  member_no?: string | null;
   full_name: string | null;
   ic_number?: string | null;
   email?: string | null;
@@ -31,6 +32,7 @@ type Member = {
 };
 
 type MemberForm = {
+  member_no: string;
   full_name: string;
   ic_number: string;
   email: string;
@@ -258,6 +260,7 @@ function parseCsvText(text: string) {
   }
 
   const expectedHeaders = [
+    "NO KEAHLIAN",
     "NAMA PENUH",
     "NO. K.P.",
     "JANTINA",
@@ -408,6 +411,7 @@ function calculateAgeFromIc(icNumber: string) {
 function downloadAssistantMemberTemplate() {
   const headers = [
     "BIL",
+    "NO KEAHLIAN",
     "NAMA PENUH (HURUF BESAR, SEPERTI DALAM K.P.)",
     "NO. K.P.",
     "JANTINA",
@@ -421,6 +425,7 @@ function downloadAssistantMemberTemplate() {
   const rows = [
     [
       "1",
+      "PGK-2026-001",
       "ALI BIN ABU",
       "'010203101234",
       "Lelaki",
@@ -432,6 +437,7 @@ function downloadAssistantMemberTemplate() {
     ],
     [
       "2",
+      "PGK-2026-002",
       "SITI BINTI AHMAD",
       "'110405105678",
       "Perempuan",
@@ -518,6 +524,7 @@ export default function AssistantMembersPage() {
   const [importing, setImporting] = useState(false);
 
   const [form, setForm] = useState<MemberForm>({
+    member_no: "",
     full_name: "",
     ic_number: "",
     email: "",
@@ -600,6 +607,7 @@ export default function AssistantMembersPage() {
 
       const matchSearch =
         !keyword ||
+        String(member.member_no || "").toLowerCase().includes(keyword) ||
         String(member.full_name || "").toLowerCase().includes(keyword) ||
         String(member.email || "").toLowerCase().includes(keyword) ||
         String(member.ic_number || "").includes(numericSearch) ||
@@ -620,6 +628,7 @@ export default function AssistantMembersPage() {
     setEditingMember(null);
 
     setForm({
+      member_no: "",
       full_name: "",
       ic_number: "",
       email: "",
@@ -644,6 +653,7 @@ export default function AssistantMembersPage() {
     setEditingMember(member);
 
     setForm({
+      member_no: member.member_no || "",
       full_name: member.full_name || "",
       ic_number: formatIc(member.ic_number || ""),
       email: member.email || "",
@@ -740,6 +750,41 @@ export default function AssistantMembersPage() {
     return (data || []).length > 0;
   }
 
+  async function checkDuplicateMemberNo(
+    memberNo: string,
+    ignoreMemberId?: string
+  ) {
+    const cleanMemberNo = memberNo.trim();
+
+    if (!cleanMemberNo) return false;
+
+    let query = supabase
+      .from("members")
+      .select("id")
+      .eq("member_no", cleanMemberNo)
+      .is("deleted_at", null)
+      .limit(1);
+
+    if (districtEnvironmentId) {
+      query = query.eq("district_environment_id", districtEnvironmentId);
+    } else if (district) {
+      query = query.eq("district", district);
+    }
+
+    if (ignoreMemberId) {
+      query = query.neq("id", ignoreMemberId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      alert(error.message);
+      return true;
+    }
+
+    return (data || []).length > 0;
+  }
+
   async function saveMember() {
     if (!validateForm()) return;
 
@@ -754,10 +799,24 @@ export default function AssistantMembersPage() {
       return;
     }
 
+    if (form.member_no.trim()) {
+      const duplicateMemberNo = await checkDuplicateMemberNo(
+        form.member_no,
+        editingMember?.id
+      );
+
+      if (duplicateMemberNo) {
+        alert("No Keahlian ini sudah digunakan oleh ahli lain.");
+        setSaving(false);
+        return;
+      }
+    }
+
     const calculatedAge =
       form.age && Number(form.age) > 0 ? Number(form.age) : 0;
 
     const payload: any = {
+      member_no: form.member_no.trim() || null,
       full_name: form.full_name.trim(),
       ic_number: icNumber || null,
       email: form.email.trim() || null,
@@ -923,6 +982,17 @@ export default function AssistantMembersPage() {
       rows.forEach((row, index) => {
         const rowNumber = index + 1;
 
+        const memberNo =
+          getCsvValue(row, [
+            "NO KEAHLIAN",
+            "NO. KEAHLIAN",
+            "NO AHLI",
+            "NO. AHLI",
+            "MEMBER NO",
+            "MEMBERSHIP NO",
+            "MEMBERSHIP NUMBER",
+          ]) || null;
+
         const fullName = getCsvValue(row, [
           "NAMA PENUH (HURUF BESAR, SEPERTI DALAM K.P.)",
           "NAMA PENUH",
@@ -1000,6 +1070,7 @@ export default function AssistantMembersPage() {
         }
 
         payloads.push({
+          member_no: memberNo,
           full_name: fullName,
           ic_number: icNumber || null,
           email,
@@ -1176,7 +1247,7 @@ export default function AssistantMembersPage() {
                 </span>
                 <input
                   className="form-control"
-                  placeholder="Cari nama, email, IC atau telefon..."
+                  placeholder="Cari nama, no keahlian, email, IC atau telefon..."
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                 />
@@ -1231,6 +1302,7 @@ export default function AssistantMembersPage() {
             <thead className="table-light">
               <tr>
                 <th className="px-4 py-3">Ahli</th>
+                <th className="px-4 py-3">No Keahlian</th>
                 <th className="px-4 py-3">IC/MyKid</th>
                 <th className="px-4 py-3">Kategori</th>
                 <th className="px-4 py-3">Umur</th>
@@ -1242,14 +1314,14 @@ export default function AssistantMembersPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-5">
+                  <td colSpan={7} className="text-center py-5">
                     <div className="spinner-border text-success"></div>
                     <p className="text-muted mt-3 mb-0">Memuatkan ahli...</p>
                   </td>
                 </tr>
               ) : filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-5 text-muted">
+                  <td colSpan={7} className="text-center py-5 text-muted">
                     <i className="bi bi-people fs-1 d-block mb-2"></i>
                     Tiada ahli dijumpai.
                   </td>
@@ -1275,6 +1347,10 @@ export default function AssistantMembersPage() {
                           </small>
                         </div>
                       </div>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      {member.member_no || "-"}
                     </td>
 
                     <td className="px-4 py-3">
@@ -1356,6 +1432,19 @@ export default function AssistantMembersPage() {
 
               <div className="modal-body p-4">
                 <div className="row g-3">
+                  <div className="col-md-6">
+                    <label className="form-label">No Keahlian</label>
+                    <input
+                      className="form-control"
+                      value={form.member_no || ""}
+                      onChange={(event) =>
+                        setForm({ ...form, member_no: event.target.value })
+                      }
+                      placeholder="Contoh: PGK-2026-001"
+                      disabled={saving}
+                    />
+                  </div>
+
                   <div className="col-md-6">
                     <label className="form-label">Nama Penuh</label>
                     <input
@@ -1607,6 +1696,10 @@ export default function AssistantMembersPage() {
                 </div>
 
                 <div className="list-group list-group-flush">
+                  <InfoRow
+                    label="No Keahlian"
+                    value={selectedMember.member_no || "-"}
+                  />
                   <InfoRow
                     label="IC/MyKid"
                     value={formatIc(selectedMember.ic_number || "") || "-"}

@@ -10,6 +10,7 @@ import { supabase } from "../../services/supabaseClient";
 
 type Member = {
   id: string;
+  member_no: string | null;
   ic_number: string | null;
   full_name: string;
   email: string | null;
@@ -42,6 +43,7 @@ type ScoutGroup = {
 };
 
 type MemberForm = {
+  member_no: string;
   ic_number: string;
   full_name: string;
   email: string;
@@ -460,10 +462,12 @@ export default function MemberManagementPage() {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Member | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<Member | null>(null);
 
   const [showViewModal, setShowViewModal] = useState(false);
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
 
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -486,6 +490,7 @@ export default function MemberManagementPage() {
   const [phoneFilter, setPhoneFilter] = useState("");
 
   const [form, setForm] = useState<MemberForm>({
+    member_no: "",
     ic_number: "",
     full_name: "",
     email: "",
@@ -612,16 +617,17 @@ export default function MemberManagementPage() {
     const keyword = search.toLowerCase().trim();
     const cleanKeyword = search.replace(/\D/g, "");
     const cleanPhoneFilter = phoneFilter.replace(/\D/g, "");
-  
+
     return members.filter((member) => {
       const liveGroupName = getLiveGroupName(member);
       const memberStatus = normalizeStatus(member.status);
       const memberCategory = member.category || member.scout_category || "";
       const formattedIC = formatMalaysianIC(member.ic_number || "");
       const formattedPhone = formatMalaysianPhone(member.guardian_phone || "");
-    
+
       const matchSearch =
         !keyword ||
+        (member.member_no || "").toLowerCase().includes(keyword) ||
         (member.full_name || "").toLowerCase().includes(keyword) ||
         (member.email || "").toLowerCase().includes(keyword) ||
         (member.guardian_email || "").toLowerCase().includes(keyword) ||
@@ -630,26 +636,26 @@ export default function MemberManagementPage() {
         formattedIC.toLowerCase().includes(keyword) ||
         (member.guardian_phone || "").includes(cleanKeyword) ||
         formattedPhone.toLowerCase().includes(keyword);
-    
+
       const matchPhone =
         !cleanPhoneFilter ||
         (member.guardian_phone || "").includes(cleanPhoneFilter) ||
         formattedPhone.replace(/\D/g, "").includes(cleanPhoneFilter);
-    
+
       const matchGroup =
         groupFilter === "Semua Kumpulan" ||
         member.group_id === groupFilter ||
         liveGroupName === groupFilter;
-    
+
       const matchCategory =
         categoryFilter === "Semua Kategori" || memberCategory === categoryFilter;
-    
+
       const matchStatus =
         statusFilter === "Semua Status" || memberStatus === statusFilter;
-    
+
       const matchGender =
         genderFilter === "Semua Jantina" || member.gender === genderFilter;
-    
+
       return (
         matchSearch &&
         matchPhone &&
@@ -675,6 +681,7 @@ export default function MemberManagementPage() {
     setEditingMember(null);
 
     setForm({
+      member_no: "",
       ic_number: "",
       full_name: "",
       email: "",
@@ -706,6 +713,7 @@ export default function MemberManagementPage() {
     setEditingMember(member);
 
     setForm({
+      member_no: member.member_no || "",
       ic_number: formatMalaysianIC(member.ic_number || ""),
       full_name: member.full_name || "",
       email: member.email || "",
@@ -729,6 +737,11 @@ export default function MemberManagementPage() {
   function openDeleteModal(member: Member) {
     setDeleteTarget(member);
     setShowDeleteModal(true);
+  }
+
+  function openRemoveModal(member: Member) {
+    setRemoveTarget(member);
+    setShowRemoveModal(true);
   }
 
   async function checkDuplicateIC(icNumber: string, ignoreMemberId?: string) {
@@ -826,6 +839,7 @@ export default function MemberManagementPage() {
     const selectedGroup = groups.find((group) => group.id === form.group_id);
 
     const payload = {
+      member_no: form.member_no.trim() || null,
       ic_number: cleanIC || null,
       full_name: form.full_name.trim(),
       email: form.email.trim() || null,
@@ -934,6 +948,43 @@ export default function MemberManagementPage() {
     setSaving(false);
   }
 
+  async function removeWrongMember() {
+    if (!removeTarget) return;
+
+    setSaving(true);
+
+    let query = supabase
+      .from("members")
+      .update({
+        status: "Tidak Aktif",
+        deleted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", removeTarget.id)
+      .is("deleted_at", null);
+
+    query = applyDistrictScope(query);
+
+    const { error } = await query;
+
+    if (error) {
+      alert(error.message);
+      setSaving(false);
+      return;
+    }
+
+    await addAuditLog(
+      "DELETE",
+      `Padam ahli Pengakap salah masuk: ${removeTarget.full_name}`,
+      removeTarget.id
+    );
+
+    await fetchMembers();
+    setShowRemoveModal(false);
+    setRemoveTarget(null);
+    setSaving(false);
+  }
+
   function closeUploadModal() {
     setShowUploadModal(false);
     setImportFile(null);
@@ -1020,6 +1071,18 @@ export default function MemberManagementPage() {
       const preparedRows = rows
         .map((row) => {
           const rowNumber = row.__rowNumber || "-";
+
+          const memberNo = getCSVValue(row, [
+            "member_no",
+            "no_keahlian",
+            "no keahlian",
+            "nokeahlian",
+            "no ahli",
+            "no_ahli",
+            "member number",
+            "membership no",
+            "membership number",
+          ]);
 
           const rawIC = getCSVValue(row, [
             "ic_number",
@@ -1217,6 +1280,7 @@ export default function MemberManagementPage() {
             .join(" | ");
 
           return {
+            member_no: memberNo.trim() || null,
             ic_number: cleanIC && validIC ? cleanIC : null,
             full_name: fullName.trim(),
             email: email && isValidEmail(email) ? email.trim() : null,
@@ -1422,7 +1486,7 @@ export default function MemberManagementPage() {
             <div className="col-md-3">
               <input
                 className="form-control"
-                placeholder="Cari nama, IC, email..."
+                placeholder="Cari nama, no keahlian, IC, email..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -1505,6 +1569,7 @@ export default function MemberManagementPage() {
             <thead>
               <tr>
                 <th>Nama</th>
+                <th>No Keahlian</th>
                 <th>No IC / MyKid</th>
                 <th>Kumpulan</th>
                 <th>Kategori</th>
@@ -1519,14 +1584,14 @@ export default function MemberManagementPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-5">
+                  <td colSpan={10} className="text-center py-5">
                     <div className="spinner-border text-success"></div>
                     <p className="text-muted mt-3 mb-0">Memuatkan data...</p>
                   </td>
                 </tr>
               ) : filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-5 text-muted">
+                  <td colSpan={10} className="text-center py-5 text-muted">
                     <i className="bi bi-inbox fs-1 d-block mb-2"></i>
                     Tiada ahli dijumpai.
                   </td>
@@ -1552,6 +1617,7 @@ export default function MemberManagementPage() {
                       </div>
                     </td>
 
+                    <td>{member.member_no || "-"}</td>
                     <td>{displayMalaysianIC(member.ic_number)}</td>
                     <td>{getLiveGroupName(member)}</td>
                     <td>{member.category || member.scout_category || "-"}</td>
@@ -1572,31 +1638,49 @@ export default function MemberManagementPage() {
                     </td>
 
                     <td className="text-end">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-success me-1"
-                        onClick={() => openViewModal(member)}
-                      >
-                        View
-                      </button>
-
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline-secondary me-1"
-                        onClick={() => openEditModal(member)}
-                      >
-                        Edit
-                      </button>
-
-                      {isActive(member.status) && (
+                      <div className="btn-group">
                         <button
                           type="button"
-                          className="btn btn-sm btn-outline-danger"
-                          onClick={() => openDeleteModal(member)}
+                          className="btn btn-sm btn-light border"
+                          onClick={() => openViewModal(member)}
+                          title="Lihat ahli"
+                          aria-label="Lihat ahli"
                         >
-                          Nyahaktif
+                          <i className="bi bi-eye text-primary"></i>
                         </button>
-                      )}
+
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-light border"
+                          onClick={() => openEditModal(member)}
+                          title="Edit ahli"
+                          aria-label="Edit ahli"
+                        >
+                          <i className="bi bi-pencil-square text-secondary"></i>
+                        </button>
+
+                        {isActive(member.status) && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-light border"
+                            onClick={() => openDeleteModal(member)}
+                            title="Nyahaktif ahli"
+                            aria-label="Nyahaktif ahli"
+                          >
+                            <i className="bi bi-person-dash text-warning"></i>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-light border"
+                          onClick={() => openRemoveModal(member)}
+                          title="Padam ahli salah masuk"
+                          aria-label="Padam ahli salah masuk"
+                        >
+                          <i className="bi bi-trash text-danger"></i>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -1716,9 +1800,9 @@ export default function MemberManagementPage() {
                     </div>
 
                     <div className="text-muted mt-2">
-                      CSV sahaja. Format BIL, NAMA PEN, NO. K.P., JANTINA,
-                      KETURUNAN, TARIKH LAHIR, UNIT PENG, NO. WOS, EMAIL
-                      disokong.
+                      CSV sahaja. Format BIL, NO KEAHLIAN, NAMA PEN, NO. K.P.,
+                      JANTINA, KETURUNAN, TARIKH LAHIR, UNIT PENG, NO. WOS,
+                      EMAIL disokong.
                     </div>
 
                     {importFile && (
@@ -1744,8 +1828,8 @@ export default function MemberManagementPage() {
                     Format CSV yang disokong:
                   </div>
                   <code>
-                    BIL, NAMA PEN, NO. K.P., JANTINA, KETURUNAN, TARIKH LAHIR,
-                    UNIT PENG, NO. WOS, EMAIL
+                    BIL, NO KEAHLIAN, NAMA PEN, NO. K.P., JANTINA, KETURUNAN,
+                    TARIKH LAHIR, UNIT PENG, NO. WOS, EMAIL
                   </code>
                   <div className="small text-muted mt-2">
                     Kalau IC sudah wujud, sistem akan skip ahli tersebut dan
@@ -1807,11 +1891,18 @@ export default function MemberManagementPage() {
           <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
-                <h5 className="modal-title fw-bold">
-                  {editingMember
-                    ? "Edit Ahli Pengakap"
-                    : "Tambah Ahli Pengakap"}
-                </h5>
+                <div>
+                  <h5 className="modal-title fw-bold">
+                    {editingMember
+                      ? "Edit Ahli Pengakap"
+                      : "Tambah Ahli Pengakap"}
+                  </h5>
+                  <small className="text-muted">
+                    {editingMember
+                      ? "Kemaskini maklumat ahli pengakap mengikut format ringkas."
+                      : "Tambah ahli pengakap baru ke dalam kumpulan daerah."}
+                  </small>
+                </div>
 
                 <button
                   type="button"
@@ -1824,10 +1915,39 @@ export default function MemberManagementPage() {
                 ></button>
               </div>
 
-              <div className="modal-body">
+              <div className="modal-body p-4">
                 <div className="row g-3">
                   <div className="col-md-6">
-                    <label className="form-label">No IC / MyKid</label>
+                    <label className="form-label">No Keahlian</label>
+                    <input
+                      className="form-control"
+                      value={form.member_no}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          member_no: e.target.value,
+                        })
+                      }
+                      placeholder="Contoh: PGK-2026-001"
+                      disabled={saving}
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Nama Penuh</label>
+                    <input
+                      className="form-control"
+                      value={form.full_name}
+                      onChange={(e) =>
+                        setForm({ ...form, full_name: e.target.value })
+                      }
+                      placeholder="Nama penuh ahli"
+                      disabled={saving}
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">IC/MyKid</label>
                     <input
                       className="form-control"
                       value={form.ic_number}
@@ -1844,19 +1964,7 @@ export default function MemberManagementPage() {
                   </div>
 
                   <div className="col-md-6">
-                    <label className="form-label">Nama Penuh</label>
-                    <input
-                      className="form-control"
-                      value={form.full_name}
-                      onChange={(e) =>
-                        setForm({ ...form, full_name: e.target.value })
-                      }
-                      disabled={saving}
-                    />
-                  </div>
-
-                  <div className="col-md-6">
-                    <label className="form-label">E-mel Ahli / Penjaga</label>
+                    <label className="form-label">Email</label>
                     <input
                       type="email"
                       className="form-control"
@@ -1864,6 +1972,7 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, email: e.target.value })
                       }
+                      placeholder="email@example.com"
                       disabled={saving}
                     />
                   </div>
@@ -1920,6 +2029,7 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, age: e.target.value })
                       }
+                      placeholder="Umur"
                       disabled={saving}
                     />
                   </div>
@@ -1948,6 +2058,7 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, guardian_name: e.target.value })
                       }
+                      placeholder="Nama ibu/bapa/penjaga"
                       disabled={saving}
                     />
                   </div>
@@ -1963,6 +2074,7 @@ export default function MemberManagementPage() {
                           guardian_phone: formatMalaysianPhone(e.target.value),
                         })
                       }
+                      placeholder="012-345 6789"
                       maxLength={13}
                       disabled={saving}
                     />
@@ -1977,6 +2089,7 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, guardian_email: e.target.value })
                       }
+                      placeholder="penjaga@example.com"
                       disabled={saving}
                     />
                   </div>
@@ -1997,6 +2110,27 @@ export default function MemberManagementPage() {
                     </select>
                   </div>
 
+                  <div className="col-md-6">
+                    <label className="form-label">Daerah</label>
+                    <input
+                      className="form-control bg-light"
+                      value={district || "-"}
+                      readOnly
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Kumpulan Terkini</label>
+                    <input
+                      className="form-control bg-light"
+                      value={
+                        groups.find((group) => group.id === form.group_id)
+                          ?.group_name || form.group_name || "-"
+                      }
+                      readOnly
+                    />
+                  </div>
+
                   <div className="col-12">
                     <label className="form-label">Alamat</label>
                     <textarea
@@ -2006,6 +2140,7 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, address: e.target.value })
                       }
+                      placeholder="Alamat ahli / penjaga"
                       disabled={saving}
                     ></textarea>
                   </div>
@@ -2019,9 +2154,16 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, notes: e.target.value })
                       }
+                      placeholder="Catatan tambahan"
                       disabled={saving}
                     ></textarea>
                   </div>
+                </div>
+
+                <div className="alert alert-info rounded-4 small mt-4 mb-0">
+                  <i className="bi bi-info-circle me-2"></i>
+                  Pesuruhjaya Daerah boleh mengurus ahli untuk semua kumpulan
+                  dalam daerah ini.
                 </div>
               </div>
 
@@ -2044,11 +2186,16 @@ export default function MemberManagementPage() {
                   onClick={saveMember}
                   disabled={saving}
                 >
-                  {saving
-                    ? "Menyimpan..."
-                    : editingMember
-                    ? "Simpan Perubahan"
-                    : "Simpan Ahli"}
+                  {saving ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-1"></span>
+                      Menyimpan...
+                    </>
+                  ) : editingMember ? (
+                    "Simpan Perubahan"
+                  ) : (
+                    "Simpan Ahli"
+                  )}
                 </button>
               </div>
             </div>
@@ -2081,6 +2228,11 @@ export default function MemberManagementPage() {
                 </p>
 
                 <div className="list-group list-group-flush">
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span>No Keahlian</span>
+                    <strong>{selectedMember.member_no || "-"}</strong>
+                  </div>
+
                   <div className="list-group-item d-flex justify-content-between">
                     <span>No IC / MyKid</span>
                     <strong>
@@ -2195,6 +2347,92 @@ export default function MemberManagementPage() {
                   disabled={saving}
                 >
                   {saving ? "Memproses..." : "Ya, Nyahaktif"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRemoveModal && removeTarget && (
+        <div
+          className="modal d-block"
+          tabIndex={-1}
+          style={{ background: "rgba(0,0,0,.55)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0 rounded-4">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold text-danger">
+                  Padam Ahli Salah Masuk
+                </h5>
+
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => {
+                    setShowRemoveModal(false);
+                    setRemoveTarget(null);
+                  }}
+                  disabled={saving}
+                ></button>
+              </div>
+
+              <div className="modal-body">
+                <div className="alert alert-danger rounded-4">
+                  <div className="fw-semibold mb-1">
+                    Rekod ini akan dibuang daripada senarai ahli.
+                  </div>
+                  <div className="small">
+                    Sistem akan guna soft delete untuk audit log, bukan padam
+                    kekal daripada database.
+                  </div>
+                </div>
+
+                <p className="mb-1">
+                  Adakah anda pasti mahu padam ahli salah masuk ini?
+                </p>
+
+                <strong>{removeTarget.full_name}</strong>
+
+                <div className="small text-muted mt-2">
+                  No Keahlian: {removeTarget.member_no || "-"}
+                </div>
+                <div className="small text-muted">
+                  IC / MyKid: {displayMalaysianIC(removeTarget.ic_number)}
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={() => {
+                    setShowRemoveModal(false);
+                    setRemoveTarget(null);
+                  }}
+                  disabled={saving}
+                >
+                  Batal
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={removeWrongMember}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-1"></span>
+                      Memadam...
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-trash me-1"></i>
+                      Ya, Padam
+                    </>
+                  )}
                 </button>
               </div>
             </div>
