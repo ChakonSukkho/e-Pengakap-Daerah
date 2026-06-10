@@ -4,6 +4,7 @@ import { supabase } from "../../services/supabaseClient";
 
 type Member = {
   id: string;
+  member_no?: string | null;
   full_name: string | null;
   ic_number?: string | null;
   group_id?: string | null;
@@ -44,6 +45,14 @@ type AttendanceRecord = {
   recorded_by?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  deleted_at?: string | null;
+};
+
+type Group = {
+  id: string;
+  group_name: string | null;
+  district?: string | null;
+  district_environment_id?: string | null;
   deleted_at?: string | null;
 };
 
@@ -93,6 +102,83 @@ function formatDate(value?: string | null) {
   });
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+
+  return new Date(value).toLocaleString("ms-MY", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function normalizeStatus(status?: string | null) {
+  const value = String(status || "Aktif").trim().toLowerCase();
+
+  if (value === "dibatalkan" || value === "cancelled" || value === "canceled") {
+    return "Dibatalkan";
+  }
+
+  if (
+    value === "tidak aktif" ||
+    value === "inactive" ||
+    value === "nonaktif"
+  ) {
+    return "Tidak Aktif";
+  }
+
+  return "Aktif";
+}
+
+function getAutoActivityStatus(activity?: Activity | null, now = new Date()) {
+  const manualStatus = normalizeStatus(activity?.status);
+
+  if (manualStatus === "Dibatalkan") {
+    return {
+      label: "Dibatalkan",
+      icon: "bi-x-circle",
+      badgeClass: "bg-danger",
+    };
+  }
+
+  if (manualStatus !== "Aktif") {
+    return {
+      label: "Tidak Aktif",
+      icon: "bi-dash-circle",
+      badgeClass: "bg-secondary",
+    };
+  }
+
+  const start = activity?.activity_date ? new Date(activity.activity_date) : null;
+  const end = activity?.activity_end_at
+    ? new Date(activity.activity_end_at)
+    : null;
+
+  if (start && now < start) {
+    return {
+      label: "Akan Datang",
+      icon: "bi-clock",
+      badgeClass: "bg-warning text-dark",
+    };
+  }
+
+  if (end && now > end) {
+    return {
+      label: "Selesai",
+      icon: "bi-check-circle",
+      badgeClass: "bg-success",
+    };
+  }
+
+  return {
+    label: "Sedang Berlangsung",
+    icon: "bi-play-circle",
+    badgeClass: "bg-primary",
+  };
+}
+
 function getMemberUnit(member?: Member | null) {
   return (
     member?.unit_pengakap ||
@@ -120,27 +206,13 @@ function statusBadge(status?: string | null) {
   return "bg-info-subtle text-info border border-info-subtle";
 }
 
-function activityStatusBadge(status?: string | null) {
-  const value = String(status || "Akan Datang").toLowerCase();
-
-  if (value.includes("selesai") || value.includes("completed")) {
-    return "bg-success-subtle text-success border border-success-subtle";
-  }
-
-  if (value.includes("batal")) {
-    return "bg-danger-subtle text-danger border border-danger-subtle";
-  }
-
-  if (value.includes("berlangsung") || value.includes("aktif")) {
-    return "bg-info-subtle text-info border border-info-subtle";
-  }
-
-  return "bg-warning-subtle text-warning border border-warning-subtle";
-}
-
 function calculatePercentage(hadir: number, total: number) {
   if (!total) return 0;
   return Math.round((hadir / total) * 100);
+}
+
+function escapeCSV(value: unknown) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
 
 async function addAuditLog(
@@ -173,16 +245,17 @@ export default function AssistantAttendancePage() {
   const currentUser = useMemo(() => getCurrentUser(), []);
 
   const groupId = currentUser.group_id || "";
-  const groupName = currentUser.group_name || "";
+  const fallbackGroupName = currentUser.group_name || "";
   const district = currentUser.district || "";
   const districtEnvironmentId = currentUser.district_environment_id || "";
   const recordedBy = currentUser.id || null;
 
   const [members, setMembers] = useState<Member[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>(
-    []
-  );
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [attendanceHistory, setAttendanceHistory] = useState<
+    AttendanceRecord[]
+  >([]);
 
   const [selectedActivityId, setSelectedActivityId] = useState("");
   const [attendance, setAttendance] = useState<Record<string, string>>({});
@@ -196,24 +269,140 @@ export default function AssistantAttendancePage() {
   const [statusFilter, setStatusFilter] = useState("Semua Status");
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
 
+  const groupNameById = useMemo(() => {
+    const map = new Map<string, string>();
+
+    groups.forEach((group) => {
+      if (group.id) map.set(group.id, group.group_name || "-");
+    });
+
+    return map;
+  }, [groups]);
+
+  function getLiveGroupName(record?: {
+    group_id?: string | null;
+    group_name?: string | null;
+  }) {
+    if (record?.group_id && groupNameById.has(record.group_id)) {
+      return groupNameById.get(record.group_id) || record.group_name || "-";
+    }
+
+    return record?.group_name || fallbackGroupName || "-";
+  }
+
+  const currentGroupName = useMemo(() => {
+    if (groupId && groupNameById.has(groupId)) {
+      return groupNameById.get(groupId) || fallbackGroupName || "-";
+    }
+
+    return fallbackGroupName || "-";
+  }, [groupId, groupNameById, fallbackGroupName]);
+
+  function applyDistrictScope(query: any) {
+    if (districtEnvironmentId && district) {
+      return query.or(
+        `district_environment_id.eq.${districtEnvironmentId},and(district_environment_id.is.null,district.eq.${district})`
+      );
+    }
+
+    if (districtEnvironmentId) {
+      return query.eq("district_environment_id", districtEnvironmentId);
+    }
+
+    if (district) {
+      return query.eq("district", district);
+    }
+
+    return query;
+  }
+
+  function sameDistrict(record?: {
+    district_environment_id?: string | null;
+    district?: string | null;
+  }) {
+    if (!record) return false;
+
+    if (districtEnvironmentId && record.district_environment_id) {
+      return record.district_environment_id === districtEnvironmentId;
+    }
+
+    if (district && record.district) {
+      return record.district === district;
+    }
+
+    return Boolean(districtEnvironmentId || district);
+  }
+
+  function sameGroup(record?: {
+    group_id?: string | null;
+    group_name?: string | null;
+  }) {
+    if (!record) return false;
+
+    if (groupId && record.group_id) {
+      return record.group_id === groupId;
+    }
+
+    const liveName = getLiveGroupName(record);
+    return Boolean(
+      fallbackGroupName &&
+        liveName &&
+        liveName.toLowerCase() === fallbackGroupName.toLowerCase()
+    );
+  }
+
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (selectedActivityId && members.length > 0) {
       loadExistingAttendance(selectedActivityId, members);
     }
-  }, [selectedActivityId, members.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedActivityId, members.length, activities.length]);
 
   async function fetchData() {
     setLoading(true);
+    await fetchGroups();
     await Promise.all([fetchMembers(), fetchActivities(), fetchHistory()]);
     setLoading(false);
   }
 
+  async function fetchGroups() {
+    if (!groupId && !fallbackGroupName) {
+      setGroups([]);
+      return;
+    }
+
+    let query = supabase
+      .from("groups")
+      .select("id, group_name, district, district_environment_id, deleted_at")
+      .is("deleted_at", null)
+      .order("group_name", { ascending: true });
+
+    if (groupId) {
+      query = query.eq("id", groupId);
+    } else {
+      query = query.eq("group_name", fallbackGroupName);
+    }
+
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.warn("Groups issue:", error.message);
+      setGroups([]);
+      return;
+    }
+
+    setGroups(data || []);
+  }
+
   async function fetchMembers() {
-    if (!groupId && !groupName) {
+    if (!groupId && !fallbackGroupName) {
       setMembers([]);
       return;
     }
@@ -227,12 +416,10 @@ export default function AssistantAttendancePage() {
     if (groupId) {
       query = query.eq("group_id", groupId);
     } else {
-      query = query.eq("group_name", groupName);
+      query = query.eq("group_name", fallbackGroupName);
     }
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
@@ -251,7 +438,7 @@ export default function AssistantAttendancePage() {
   }
 
   async function fetchActivities() {
-    if (!groupId && !groupName) {
+    if (!groupId && !fallbackGroupName) {
       setActivities([]);
       return;
     }
@@ -265,12 +452,10 @@ export default function AssistantAttendancePage() {
     if (groupId) {
       query = query.eq("group_id", groupId);
     } else {
-      query = query.eq("group_name", groupName);
+      query = query.eq("group_name", fallbackGroupName);
     }
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
@@ -282,7 +467,6 @@ export default function AssistantAttendancePage() {
 
     const activityList = data || [];
     setActivities(activityList);
-    console.log("Assistant fetched activities:", activityList);
 
     if (!selectedActivityId && activityList.length > 0) {
       setSelectedActivityId(activityList[0].id);
@@ -290,7 +474,7 @@ export default function AssistantAttendancePage() {
   }
 
   async function fetchHistory() {
-    if (!groupId && !groupName) {
+    if (!groupId && !fallbackGroupName) {
       setAttendanceHistory([]);
       return;
     }
@@ -304,12 +488,10 @@ export default function AssistantAttendancePage() {
     if (groupId) {
       query = query.eq("group_id", groupId);
     } else {
-      query = query.eq("group_name", groupName);
+      query = query.eq("group_name", fallbackGroupName);
     }
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
@@ -322,69 +504,63 @@ export default function AssistantAttendancePage() {
     setAttendanceHistory(data || []);
   }
 
-    async function loadExistingAttendance(activityId: string, memberList = members) {
-      setLoadingAttendance(true);
+  async function loadExistingAttendance(
+    activityId: string,
+    memberList = members
+  ) {
+    setLoadingAttendance(true);
 
-      const initialAttendance: Record<string, string> = {};
-      const initialNotes: Record<string, string> = {};
+    const initialAttendance: Record<string, string> = {};
+    const initialNotes: Record<string, string> = {};
 
-      memberList.forEach((member) => {
-        initialAttendance[member.id] = "Hadir";
-        initialNotes[member.id] = "";
-      });
+    memberList.forEach((member) => {
+      initialAttendance[member.id] = "Hadir";
+      initialNotes[member.id] = "";
+    });
 
-      const selectedActivity = activities.find(
-        (activity) => activity.id === activityId
-      );
+    const selectedActivity = activities.find(
+      (activity) => activity.id === activityId
+    );
 
-      let query = supabase
-        .from("attendance")
-        .select("*")
-        .eq("activity_id", activityId)
-        .eq("district_environment_id", districtEnvironmentId)
-        .is("deleted_at", null);
+    let query = supabase
+      .from("attendance")
+      .select("*")
+      .eq("activity_id", activityId)
+      .is("deleted_at", null);
 
-      if (selectedActivity?.group_id) {
-        query = query.eq("group_id", selectedActivity.group_id);
-      } else if (selectedActivity?.group_name) {
-        query = query.eq("group_name", selectedActivity.group_name);
-      } else if (groupId) {
-        query = query.eq("group_id", groupId);
-      } else {
-        query = query.eq("group_name", groupName);
-      }
+    query = applyDistrictScope(query);
 
-      const { data, error } = await query;
+    if (selectedActivity?.group_id) {
+      query = query.eq("group_id", selectedActivity.group_id);
+    } else if (groupId) {
+      query = query.eq("group_id", groupId);
+    } else if (selectedActivity?.group_name) {
+      query = query.eq("group_name", selectedActivity.group_name);
+    } else {
+      query = query.eq("group_name", fallbackGroupName);
+    }
 
-      if (error) {
-        alert(error.message);
-        setAttendance(initialAttendance);
-        setNotes(initialNotes);
-        setLoadingAttendance(false);
-        return;
-      }
+    const { data, error } = await query;
 
-      console.log("Assistant loaded attendance:", {
-        activityId,
-        districtEnvironmentId,
-        groupId,
-        groupName,
-        activityGroupId: selectedActivity?.group_id,
-        activityGroupName: selectedActivity?.group_name,
-        rows: data,
-      });
-
-      (data || []).forEach((record: AttendanceRecord) => {
-        if (record.member_id) {
-          initialAttendance[record.member_id] = record.status || "Hadir";
-          initialNotes[record.member_id] = record.notes || "";
-        }
-      });
-
+    if (error) {
+      alert(error.message);
       setAttendance(initialAttendance);
       setNotes(initialNotes);
       setLoadingAttendance(false);
+      return;
     }
+
+    (data || []).forEach((record: AttendanceRecord) => {
+      if (record.member_id) {
+        initialAttendance[record.member_id] = record.status || "Hadir";
+        initialNotes[record.member_id] = record.notes || "";
+      }
+    });
+
+    setAttendance(initialAttendance);
+    setNotes(initialNotes);
+    setLoadingAttendance(false);
+  }
 
   function updateAttendance(memberId: string, status: string) {
     setAttendance((prev) => ({
@@ -434,10 +610,7 @@ export default function AssistantAttendancePage() {
     }
 
     const activityBelongsToGroup =
-      selectedActivity.district_environment_id === districtEnvironmentId &&
-      (groupId
-        ? selectedActivity.group_id === groupId
-        : selectedActivity.group_name === groupName);
+      sameDistrict(selectedActivity) && sameGroup(selectedActivity);
 
     if (!activityBelongsToGroup) {
       alert("Aktiviti ini bukan milik kumpulan anda.");
@@ -447,7 +620,7 @@ export default function AssistantAttendancePage() {
     setSaving(true);
 
     const attendanceDate =
-      selectedActivity.activity_date || new Date().toISOString().slice(0, 10);
+      selectedActivity.activity_date || new Date().toISOString();
 
     const memberIds = members.map((member) => member.id);
 
@@ -455,18 +628,19 @@ export default function AssistantAttendancePage() {
       .from("attendance")
       .select("id, member_id")
       .eq("activity_id", selectedActivityId)
-      .eq("district_environment_id", districtEnvironmentId)
       .in("member_id", memberIds)
       .is("deleted_at", null);
 
+    existingQuery = applyDistrictScope(existingQuery);
+
     if (selectedActivity.group_id) {
       existingQuery = existingQuery.eq("group_id", selectedActivity.group_id);
-    } else if (selectedActivity.group_name) {
-      existingQuery = existingQuery.eq("group_name", selectedActivity.group_name);
     } else if (groupId) {
       existingQuery = existingQuery.eq("group_id", groupId);
+    } else if (selectedActivity.group_name) {
+      existingQuery = existingQuery.eq("group_name", selectedActivity.group_name);
     } else {
-      existingQuery = existingQuery.eq("group_name", groupName);
+      existingQuery = existingQuery.eq("group_name", fallbackGroupName);
     }
 
     const { data: existingRows, error: existingError } = await existingQuery;
@@ -481,6 +655,11 @@ export default function AssistantAttendancePage() {
       (existingRows || []).map((row: any) => [row.member_id, row.id])
     );
 
+    const liveGroupName = getLiveGroupName({
+      group_id: selectedActivity.group_id || groupId || null,
+      group_name: selectedActivity.group_name || fallbackGroupName || null,
+    });
+
     const basePayload = {
       activity_id: selectedActivityId,
       attendance_date: attendanceDate,
@@ -488,7 +667,7 @@ export default function AssistantAttendancePage() {
       district_environment_id:
         districtEnvironmentId || selectedActivity.district_environment_id || null,
       group_id: selectedActivity.group_id || groupId || null,
-      group_name: selectedActivity.group_name || groupName || null,
+      group_name: liveGroupName || selectedActivity.group_name || fallbackGroupName || null,
       recorded_by: recordedBy,
       deleted_at: null,
       updated_at: new Date().toISOString(),
@@ -505,20 +684,11 @@ export default function AssistantAttendancePage() {
       const existingId = existingMap.get(member.id);
 
       if (existingId) {
-        let updateQuery = supabase
+        return supabase
           .from("attendance")
           .update(payload)
           .eq("id", existingId)
-          .eq("district_environment_id", districtEnvironmentId)
           .is("deleted_at", null);
-
-        if (groupId) {
-          updateQuery = updateQuery.eq("group_id", groupId);
-        } else {
-          updateQuery = updateQuery.eq("group_name", groupName);
-        }
-
-        return updateQuery;
       }
 
       return supabase.from("attendance").insert({
@@ -558,30 +728,34 @@ export default function AssistantAttendancePage() {
 
     const headers = [
       "BIL",
+      "NO KEAHLIAN",
       "NAMA AHLI",
-      "NO KP",
+      "NO KP / MYKID",
       "UNIT",
+      "KUMPULAN",
       "AKTIVITI",
-      "TARIKH",
-      "STATUS",
+      "TARIKH MULA",
+      "TARIKH TAMAT",
+      "STATUS KEHADIRAN",
       "CATATAN",
     ];
 
     const rows = filteredMembers.map((member, index) => [
       index + 1,
+      member.member_no || "",
       member.full_name || "",
       member.ic_number || "",
       getMemberUnit(member),
+      getLiveGroupName(member),
       selectedActivity?.activity_name || "",
       selectedActivity?.activity_date || "",
+      selectedActivity?.activity_end_at || "",
       attendance[member.id] || "Hadir",
       notes[member.id] || "",
     ]);
 
     const csvContent = [headers, ...rows]
-      .map((row) =>
-        row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")
-      )
+      .map((row) => row.map(escapeCSV).join(","))
       .join("\n");
 
     const blob = new Blob(["\ufeff" + csvContent], {
@@ -592,7 +766,7 @@ export default function AssistantAttendancePage() {
     const link = document.createElement("a");
 
     link.href = url;
-    link.download = `kehadiran-${groupName || "kumpulan"}.csv`;
+    link.download = `kehadiran-${currentGroupName || "kumpulan"}.csv`;
     link.click();
 
     URL.revokeObjectURL(url);
@@ -604,24 +778,31 @@ export default function AssistantAttendancePage() {
     );
   }, [activities, selectedActivityId]);
 
+  const selectedActivityStatus = useMemo(() => {
+    return getAutoActivityStatus(selectedActivity);
+  }, [selectedActivity]);
+
   const filteredMembers = useMemo(() => {
     const keyword = search.toLowerCase().trim();
 
     return members.filter((member) => {
-      const status = attendance[member.id] || "Hadir";
+      const currentAttendanceStatus = attendance[member.id] || "Hadir";
 
       const matchSearch =
         !keyword ||
+        String(member.member_no || "").toLowerCase().includes(keyword) ||
         String(member.full_name || "").toLowerCase().includes(keyword) ||
         String(member.ic_number || "").toLowerCase().includes(keyword) ||
-        getMemberUnit(member).toLowerCase().includes(keyword);
+        getMemberUnit(member).toLowerCase().includes(keyword) ||
+        getLiveGroupName(member).toLowerCase().includes(keyword);
 
       const matchStatus =
-        statusFilter === "Semua Status" || status === statusFilter;
+        statusFilter === "Semua Status" ||
+        currentAttendanceStatus === statusFilter;
 
       return matchSearch && matchStatus;
     });
-  }, [members, attendance, search, statusFilter]);
+  }, [members, attendance, search, statusFilter, groupNameById]);
 
   const attendanceSummary = useMemo(() => {
     const total = members.length;
@@ -667,7 +848,7 @@ export default function AssistantAttendancePage() {
       }));
   }, [selectedMember, attendanceHistory, activities]);
 
-  if (!groupId && !groupName) {
+  if (!groupId && !fallbackGroupName) {
     return (
       <DashboardLayout role="assistantLeader">
         <div className="alert alert-warning rounded-4">
@@ -681,12 +862,12 @@ export default function AssistantAttendancePage() {
 
   return (
     <DashboardLayout role="assistantLeader">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
         <div>
           <h2 className="fw-bold mb-1">Kehadiran Ahli</h2>
           <p className="text-muted mb-0">
             Rekod kehadiran ahli untuk kumpulan{" "}
-            <strong>{groupName || "-"}</strong>.
+            <strong>{currentGroupName || "-"}</strong>.
           </p>
         </div>
 
@@ -722,12 +903,16 @@ export default function AssistantAttendancePage() {
                 onChange={(e) => setSelectedActivityId(e.target.value)}
               >
                 <option value="">Pilih Aktiviti</option>
-                {activities.map((activity) => (
-                  <option key={activity.id} value={activity.id}>
-                    {activity.activity_name || "-"} -{" "}
-                    {formatDate(activity.activity_date)}
-                  </option>
-                ))}
+                {activities.map((activity) => {
+                  const autoStatus = getAutoActivityStatus(activity);
+
+                  return (
+                    <option key={activity.id} value={activity.id}>
+                      {activity.activity_name || "-"} -{" "}
+                      {formatDate(activity.activity_date)} - {autoStatus.label}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -737,24 +922,36 @@ export default function AssistantAttendancePage() {
                   <div className="d-flex justify-content-between align-items-start gap-3">
                     <div>
                       <div className="fw-bold">
-                        {selectedActivity.activity_name}
+                        {selectedActivity.activity_name || "-"}
                       </div>
+
                       <small className="text-muted d-block">
                         <i className="bi bi-calendar-event me-1"></i>
-                        {formatDate(selectedActivity.activity_date)}
+                        Mula: {formatDateTime(selectedActivity.activity_date)}
                       </small>
+
+                      <small className="text-muted d-block">
+                        <i className="bi bi-calendar-check me-1"></i>
+                        Tamat:{" "}
+                        {formatDateTime(selectedActivity.activity_end_at)}
+                      </small>
+
                       <small className="text-muted d-block">
                         <i className="bi bi-geo-alt me-1"></i>
                         {selectedActivity.location || "-"}
                       </small>
+
+                      <small className="text-muted d-block">
+                        <i className="bi bi-people me-1"></i>
+                        {getLiveGroupName(selectedActivity)}
+                      </small>
                     </div>
 
                     <span
-                      className={`badge rounded-pill ${activityStatusBadge(
-                        selectedActivity.status
-                      )}`}
+                      className={`badge rounded-pill ${selectedActivityStatus.badgeClass}`}
                     >
-                      {selectedActivity.status || "Akan Datang"}
+                      <i className={`bi ${selectedActivityStatus.icon} me-1`}></i>
+                      {selectedActivityStatus.label}
                     </span>
                   </div>
                 </div>
@@ -844,7 +1041,7 @@ export default function AssistantAttendancePage() {
                 </span>
                 <input
                   className="form-control"
-                  placeholder="Cari nama ahli, No KP atau unit..."
+                  placeholder="Cari No Keahlian, nama, IC/MyKid, unit..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -908,6 +1105,7 @@ export default function AssistantAttendancePage() {
             <thead className="table-light">
               <tr>
                 <th className="px-4 py-3">Ahli</th>
+                <th className="px-4 py-3">No Keahlian</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Catatan</th>
                 <th className="px-4 py-3 text-end">Sejarah</th>
@@ -917,7 +1115,7 @@ export default function AssistantAttendancePage() {
             <tbody>
               {loading || loadingAttendance ? (
                 <tr>
-                  <td colSpan={4} className="text-center py-5">
+                  <td colSpan={5} className="text-center py-5">
                     <div className="spinner-border text-success"></div>
                     <p className="text-muted mt-3 mb-0">
                       Memuatkan kehadiran...
@@ -926,7 +1124,7 @@ export default function AssistantAttendancePage() {
                 </tr>
               ) : filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-center py-5 text-muted">
+                  <td colSpan={5} className="text-center py-5 text-muted">
                     <i className="bi bi-people fs-1 d-block mb-2"></i>
                     Tiada ahli dijumpai.
                   </td>
@@ -947,11 +1145,20 @@ export default function AssistantAttendancePage() {
                           <div className="fw-semibold">
                             {member.full_name || "-"}
                           </div>
-                          <small className="text-muted">
-                            {getMemberUnit(member)}
+                          <small className="text-muted d-block">
+                            IC/MyKid: {member.ic_number || "-"}
+                          </small>
+                          <small className="text-muted d-block">
+                            {getMemberUnit(member)} · {getLiveGroupName(member)}
                           </small>
                         </div>
                       </div>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <span className="badge rounded-pill bg-light text-dark border">
+                        {member.member_no || "-"}
+                      </span>
                     </td>
 
                     <td className="px-4 py-3" style={{ minWidth: 260 }}>
@@ -1012,7 +1219,10 @@ export default function AssistantAttendancePage() {
       </div>
 
       {selectedMember && (
-        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
+        <div
+          className="modal d-block"
+          style={{ background: "rgba(0,0,0,.55)" }}
+        >
           <div className="modal-dialog modal-dialog-centered modal-lg">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
@@ -1021,7 +1231,8 @@ export default function AssistantAttendancePage() {
                     Sejarah Kehadiran Ahli
                   </h5>
                   <small className="text-muted">
-                    {selectedMember.full_name || "-"} ·{" "}
+                    {selectedMember.full_name || "-"} · No Keahlian:{" "}
+                    {selectedMember.member_no || "-"} ·{" "}
                     {getMemberUnit(selectedMember)}
                   </small>
                 </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 
@@ -19,6 +19,21 @@ export default function DashboardLayout({
   role = "district",
 }: DashboardLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [topbarRefreshKey, setTopbarRefreshKey] = useState(0);
+
+  useEffect(() => {
+    function refreshTopbar() {
+      setTopbarRefreshKey((prev) => prev + 1);
+    }
+
+    window.addEventListener("userProfileUpdated", refreshTopbar);
+    window.addEventListener("storage", refreshTopbar);
+
+    return () => {
+      window.removeEventListener("userProfileUpdated", refreshTopbar);
+      window.removeEventListener("storage", refreshTopbar);
+    };
+  }, []);
 
   return (
     <div className="d-flex bg-light min-vh-100">
@@ -33,7 +48,7 @@ export default function DashboardLayout({
         <Sidebar
           role={role}
           collapsed={collapsed}
-          onToggle={() => setCollapsed(!collapsed)}
+          onToggle={() => setCollapsed((prev) => !prev)}
         />
       </div>
 
@@ -46,8 +61,9 @@ export default function DashboardLayout({
         }}
       >
         <Topbar
+          key={topbarRefreshKey}
           role={role}
-          onToggleSidebar={() => setCollapsed(!collapsed)}
+          onToggleSidebar={() => setCollapsed((prev) => !prev)}
         />
 
         <main className="p-4" style={{ maxWidth: "100%", overflowX: "hidden" }}>

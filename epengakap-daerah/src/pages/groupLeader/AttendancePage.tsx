@@ -4,6 +4,7 @@ import { supabase } from "../../services/supabaseClient";
 
 type Member = {
   id: string;
+  member_no?: string | null;
   full_name: string | null;
   ic_number?: string | null;
   email?: string | null;
@@ -21,6 +22,7 @@ type Activity = {
   id: string;
   activity_name: string | null;
   activity_date: string | null;
+  activity_end_at?: string | null;
   location?: string | null;
   group_id?: string | null;
   group_name?: string | null;
@@ -44,6 +46,14 @@ type AttendanceRecord = {
   recorded_by?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  deleted_at?: string | null;
+};
+
+type Group = {
+  id: string;
+  group_name: string | null;
+  district?: string | null;
+  district_environment_id?: string | null;
   deleted_at?: string | null;
 };
 
@@ -93,6 +103,83 @@ function formatDate(value?: string | null) {
   });
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+
+  return new Date(value).toLocaleString("ms-MY", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function normalizeStatus(status?: string | null) {
+  const value = String(status || "Aktif").trim().toLowerCase();
+
+  if (value === "dibatalkan" || value === "cancelled" || value === "canceled") {
+    return "Dibatalkan";
+  }
+
+  if (
+    value === "tidak aktif" ||
+    value === "inactive" ||
+    value === "nonaktif"
+  ) {
+    return "Tidak Aktif";
+  }
+
+  return "Aktif";
+}
+
+function getAutoActivityStatus(activity?: Activity | null, now = new Date()) {
+  const manualStatus = normalizeStatus(activity?.status);
+
+  if (manualStatus === "Dibatalkan") {
+    return {
+      label: "Dibatalkan",
+      icon: "bi-x-circle",
+      badgeClass: "bg-danger",
+    };
+  }
+
+  if (manualStatus !== "Aktif") {
+    return {
+      label: "Tidak Aktif",
+      icon: "bi-dash-circle",
+      badgeClass: "bg-secondary",
+    };
+  }
+
+  const start = activity?.activity_date ? new Date(activity.activity_date) : null;
+  const end = activity?.activity_end_at
+    ? new Date(activity.activity_end_at)
+    : null;
+
+  if (start && now < start) {
+    return {
+      label: "Akan Datang",
+      icon: "bi-clock",
+      badgeClass: "bg-warning text-dark",
+    };
+  }
+
+  if (end && now > end) {
+    return {
+      label: "Selesai",
+      icon: "bi-check-circle",
+      badgeClass: "bg-success",
+    };
+  }
+
+  return {
+    label: "Sedang Berlangsung",
+    icon: "bi-play-circle",
+    badgeClass: "bg-primary",
+  };
+}
+
 function getMemberUnit(member?: Member | null) {
   return (
     member?.unit_pengakap ||
@@ -120,27 +207,13 @@ function statusBadge(status?: string | null) {
   return "bg-info-subtle text-info border border-info-subtle";
 }
 
-function activityStatusBadge(status?: string | null) {
-  const value = String(status || "Akan Datang").toLowerCase();
-
-  if (value.includes("selesai") || value.includes("completed")) {
-    return "bg-success-subtle text-success border border-success-subtle";
-  }
-
-  if (value.includes("buka") || value.includes("open")) {
-    return "bg-info-subtle text-info border border-info-subtle";
-  }
-
-  if (value.includes("batal")) {
-    return "bg-danger-subtle text-danger border border-danger-subtle";
-  }
-
-  return "bg-warning-subtle text-warning border border-warning-subtle";
-}
-
 function calculatePercentage(hadir: number, total: number) {
   if (!total) return 0;
   return Math.round((hadir / total) * 100);
+}
+
+function escapeCSV(value: unknown) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
 
 async function addAuditLog(
@@ -152,8 +225,7 @@ async function addAuditLog(
     const currentUser = getCurrentUser();
 
     await supabase.from("audit_logs").insert({
-      actor_name:
-        currentUser.full_name || currentUser.name || "Pemimpin Kumpulan",
+      actor_name: currentUser.full_name || currentUser.name || "Pemimpin Kumpulan",
       actor_role: currentUser.role || "Pemimpin Kumpulan",
       action,
       module: "Kehadiran",
@@ -173,16 +245,17 @@ export default function AttendancePage() {
   const currentUser = useMemo(() => getCurrentUser(), []);
 
   const groupId = currentUser.group_id || "";
-  const groupName = currentUser.group_name || "";
+  const fallbackGroupName = currentUser.group_name || "";
   const district = currentUser.district || "";
   const districtEnvironmentId = currentUser.district_environment_id || "";
   const recordedBy = currentUser.id || null;
 
   const [members, setMembers] = useState<Member[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>(
-    []
-  );
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [attendanceHistory, setAttendanceHistory] = useState<
+    AttendanceRecord[]
+  >([]);
 
   const [selectedActivityId, setSelectedActivityId] = useState("");
   const [attendance, setAttendance] = useState<Record<string, string>>({});
@@ -194,29 +267,143 @@ export default function AttendancePage() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua Status");
-
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+
+  const groupNameById = useMemo(() => {
+    const map = new Map<string, string>();
+
+    groups.forEach((group) => {
+      if (group.id) map.set(group.id, group.group_name || "-");
+    });
+
+    return map;
+  }, [groups]);
+
+  function getLiveGroupName(record?: {
+    group_id?: string | null;
+    group_name?: string | null;
+  }) {
+    if (record?.group_id && groupNameById.has(record.group_id)) {
+      return groupNameById.get(record.group_id) || record.group_name || "-";
+    }
+
+    return record?.group_name || fallbackGroupName || "-";
+  }
+
+  const currentGroupName = useMemo(() => {
+    if (groupId && groupNameById.has(groupId)) {
+      return groupNameById.get(groupId) || fallbackGroupName || "-";
+    }
+
+    return fallbackGroupName || "-";
+  }, [groupId, groupNameById, fallbackGroupName]);
+
+  function applyDistrictScope(query: any) {
+    if (districtEnvironmentId && district) {
+      return query.or(
+        `district_environment_id.eq.${districtEnvironmentId},and(district_environment_id.is.null,district.eq.${district})`
+      );
+    }
+
+    if (districtEnvironmentId) {
+      return query.eq("district_environment_id", districtEnvironmentId);
+    }
+
+    if (district) {
+      return query.eq("district", district);
+    }
+
+    return query;
+  }
+
+  function sameDistrict(record?: {
+    district_environment_id?: string | null;
+    district?: string | null;
+  }) {
+    if (!record) return false;
+
+    if (districtEnvironmentId && record.district_environment_id) {
+      return record.district_environment_id === districtEnvironmentId;
+    }
+
+    if (district && record.district) {
+      return record.district === district;
+    }
+
+    return Boolean(districtEnvironmentId || district);
+  }
+
+  function sameGroup(record?: {
+    group_id?: string | null;
+    group_name?: string | null;
+  }) {
+    if (!record) return false;
+
+    if (groupId && record.group_id) {
+      return record.group_id === groupId;
+    }
+
+    const liveName = getLiveGroupName(record);
+
+    return Boolean(
+      fallbackGroupName &&
+        liveName &&
+        liveName.toLowerCase() === fallbackGroupName.toLowerCase()
+    );
+  }
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (selectedActivityId && members.length > 0) {
       loadExistingAttendance(selectedActivityId, members);
     }
-  }, [selectedActivityId, members.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedActivityId, members.length, activities.length]);
 
   async function fetchData() {
     setLoading(true);
-
+    await fetchGroups();
     await Promise.all([fetchMembers(), fetchActivities(), fetchHistory()]);
-
     setLoading(false);
   }
 
+  async function fetchGroups() {
+    if (!groupId && !fallbackGroupName) {
+      setGroups([]);
+      return;
+    }
+
+    let query = supabase
+      .from("groups")
+      .select("id, group_name, district, district_environment_id, deleted_at")
+      .is("deleted_at", null)
+      .order("group_name", { ascending: true });
+
+    if (groupId) {
+      query = query.eq("id", groupId);
+    } else {
+      query = query.eq("group_name", fallbackGroupName);
+    }
+
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.warn("Groups issue:", error.message);
+      setGroups([]);
+      return;
+    }
+
+    setGroups(data || []);
+  }
+
   async function fetchMembers() {
-    if (!groupId && !groupName) {
+    if (!groupId && !fallbackGroupName) {
       setMembers([]);
       return;
     }
@@ -229,13 +416,11 @@ export default function AttendancePage() {
 
     if (groupId) {
       query = query.eq("group_id", groupId);
-    } else if (groupName) {
-      query = query.eq("group_name", groupName);
+    } else {
+      query = query.eq("group_name", fallbackGroupName);
     }
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
@@ -254,7 +439,7 @@ export default function AttendancePage() {
   }
 
   async function fetchActivities() {
-    if (!groupId && !groupName) {
+    if (!groupId && !fallbackGroupName) {
       setActivities([]);
       return;
     }
@@ -268,12 +453,10 @@ export default function AttendancePage() {
     if (groupId) {
       query = query.eq("group_id", groupId);
     } else {
-      query = query.eq("group_name", groupName);
+      query = query.eq("group_name", fallbackGroupName);
     }
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
@@ -292,7 +475,7 @@ export default function AttendancePage() {
   }
 
   async function fetchHistory() {
-    if (!groupId && !groupName) {
+    if (!groupId && !fallbackGroupName) {
       setAttendanceHistory([]);
       return;
     }
@@ -305,19 +488,16 @@ export default function AttendancePage() {
 
     if (groupId) {
       query = query.eq("group_id", groupId);
-    } else if (groupName) {
-      query = query.eq("group_name", groupName);
+    } else {
+      query = query.eq("group_name", fallbackGroupName);
     }
 
-    if (districtEnvironmentId) {
-      query = query.eq("district_environment_id", districtEnvironmentId);
-    }
+    query = applyDistrictScope(query);
 
     const { data, error } = await query;
 
     if (error) {
-      // Kalau table belum ada, user akan nampak SQL yang perlu run dalam final response.
-      console.error(error.message);
+      console.warn("Attendance history issue:", error.message);
       setAttendanceHistory([]);
       return;
     }
@@ -325,7 +505,10 @@ export default function AttendancePage() {
     setAttendanceHistory(data || []);
   }
 
-  async function loadExistingAttendance(activityId: string, memberList = members) {
+  async function loadExistingAttendance(
+    activityId: string,
+    memberList = members
+  ) {
     setLoadingAttendance(true);
 
     const initialAttendance: Record<string, string> = {};
@@ -336,30 +519,29 @@ export default function AttendancePage() {
       initialNotes[member.id] = "";
     });
 
-    const activity = activities.find((item) => item.id === activityId);
+    const selectedActivity = activities.find(
+      (activity) => activity.id === activityId
+    );
 
-    if(!activity) {
-      setAttendance(initialAttendance);
-      setNotes(initialNotes);
-      setLoadingAttendance(false);
-      return;
-    }
-
-    let attendanceQuery = supabase
+    let query = supabase
       .from("attendance")
       .select("*")
       .eq("activity_id", activityId)
-      .eq("district_environment_id", districtEnvironmentId)
       .is("deleted_at", null);
 
+    query = applyDistrictScope(query);
 
-    if (activity.group_id) {
-      attendanceQuery = attendanceQuery.eq("group_id", activity.group_id);
+    if (selectedActivity?.group_id) {
+      query = query.eq("group_id", selectedActivity.group_id);
+    } else if (groupId) {
+      query = query.eq("group_id", groupId);
+    } else if (selectedActivity?.group_name) {
+      query = query.eq("group_name", selectedActivity.group_name);
     } else {
-      attendanceQuery = attendanceQuery.eq("group_name", activity.group_name);
+      query = query.eq("group_name", fallbackGroupName);
     }
 
-    const { data, error } = await attendanceQuery;
+    const { data, error } = await query;
 
     if (error) {
       alert(error.message);
@@ -429,11 +611,8 @@ export default function AttendancePage() {
     }
 
     const activityBelongsToGroup =
-      selectedActivity.district_environment_id === districtEnvironmentId &&
-      (groupId
-        ? selectedActivity.group_id === groupId
-        : selectedActivity.group_name === groupName);
-      
+      sameDistrict(selectedActivity) && sameGroup(selectedActivity);
+
     if (!activityBelongsToGroup) {
       alert("Aktiviti ini bukan milik kumpulan anda.");
       return;
@@ -442,25 +621,27 @@ export default function AttendancePage() {
     setSaving(true);
 
     const attendanceDate =
-      selectedActivity.activity_date || new Date().toISOString().slice(0, 10);
+      selectedActivity.activity_date || new Date().toISOString();
 
     const memberIds = members.map((member) => member.id);
 
-    // Ambil rekod sedia ada dulu supaya save sentiasa update row yang sama.
-    // Ini lebih reliable daripada upsert onConflict sebab sesetengah DB schema
-    // ada partial unique index yang Supabase REST susah match.
     let existingQuery = supabase
       .from("attendance")
       .select("id, member_id")
       .eq("activity_id", selectedActivityId)
-      .eq("district_environment_id", districtEnvironmentId)
       .in("member_id", memberIds)
       .is("deleted_at", null);
-    
+
+    existingQuery = applyDistrictScope(existingQuery);
+
     if (selectedActivity.group_id) {
       existingQuery = existingQuery.eq("group_id", selectedActivity.group_id);
+    } else if (groupId) {
+      existingQuery = existingQuery.eq("group_id", groupId);
     } else if (selectedActivity.group_name) {
       existingQuery = existingQuery.eq("group_name", selectedActivity.group_name);
+    } else {
+      existingQuery = existingQuery.eq("group_name", fallbackGroupName);
     }
 
     const { data: existingRows, error: existingError } = await existingQuery;
@@ -475,6 +656,11 @@ export default function AttendancePage() {
       (existingRows || []).map((row: any) => [row.member_id, row.id])
     );
 
+    const liveGroupName = getLiveGroupName({
+      group_id: selectedActivity.group_id || groupId || null,
+      group_name: selectedActivity.group_name || fallbackGroupName || null,
+    });
+
     const basePayload = {
       activity_id: selectedActivityId,
       attendance_date: attendanceDate,
@@ -482,13 +668,14 @@ export default function AttendancePage() {
       district_environment_id:
         districtEnvironmentId || selectedActivity.district_environment_id || null,
       group_id: selectedActivity.group_id || groupId || null,
-      group_name: selectedActivity.group_name || groupName || null,
+      group_name:
+        liveGroupName || selectedActivity.group_name || fallbackGroupName || null,
       recorded_by: recordedBy,
       deleted_at: null,
       updated_at: new Date().toISOString(),
     };
 
-    const updatePromises = members.map((member) => {
+    const savePromises = members.map((member) => {
       const payload = {
         ...basePayload,
         member_id: member.id,
@@ -499,31 +686,20 @@ export default function AttendancePage() {
       const existingId = existingMap.get(member.id);
 
       if (existingId) {
-        let updateAttendanceQuery = supabase
+        return supabase
           .from("attendance")
           .update(payload)
           .eq("id", existingId)
-          .eq("district_environment_id", districtEnvironmentId)
           .is("deleted_at", null);
-
-        if (selectedActivity.group_id) {
-          updateAttendanceQuery = updateAttendanceQuery.eq("group_id", selectedActivity.group_id);
-        } else {
-          updateAttendanceQuery = updateAttendanceQuery.eq("group_name", selectedActivity.group_name);
-        }
-      
-        return updateAttendanceQuery;
       }
 
-      return supabase
-        .from("attendance")
-        .insert({
-          ...payload,
-          created_at: new Date().toISOString(),
-        });
+      return supabase.from("attendance").insert({
+        ...payload,
+        created_at: new Date().toISOString(),
+      });
     });
 
-    const results = await Promise.all(updatePromises);
+    const results = await Promise.all(savePromises);
     const failed = results.find((result) => result.error);
 
     if (failed?.error) {
@@ -534,7 +710,9 @@ export default function AttendancePage() {
 
     await addAuditLog(
       "UPDATE",
-      `Kemaskini kehadiran untuk aktiviti ${selectedActivity.activity_name || "-"}`,
+      `Kemaskini kehadiran aktiviti ${
+        selectedActivity.activity_name || "-"
+      } oleh Pemimpin Kumpulan`,
       selectedActivityId
     );
 
@@ -552,32 +730,34 @@ export default function AttendancePage() {
 
     const headers = [
       "BIL",
+      "NO KEAHLIAN",
       "NAMA AHLI",
-      "NO KP",
+      "NO KP / MYKID",
       "UNIT",
+      "KUMPULAN",
       "AKTIVITI",
-      "TARIKH",
-      "STATUS",
+      "TARIKH MULA",
+      "TARIKH TAMAT",
+      "STATUS KEHADIRAN",
       "CATATAN",
     ];
 
     const rows = filteredMembers.map((member, index) => [
       index + 1,
+      member.member_no || "",
       member.full_name || "",
       member.ic_number || "",
       getMemberUnit(member),
+      getLiveGroupName(member),
       selectedActivity?.activity_name || "",
       selectedActivity?.activity_date || "",
+      selectedActivity?.activity_end_at || "",
       attendance[member.id] || "Hadir",
       notes[member.id] || "",
     ]);
 
     const csvContent = [headers, ...rows]
-      .map((row) =>
-        row
-          .map((value) => `"${String(value).replace(/"/g, '""')}"`)
-          .join(",")
-      )
+      .map((row) => row.map(escapeCSV).join(","))
       .join("\n");
 
     const blob = new Blob(["\ufeff" + csvContent], {
@@ -588,131 +768,60 @@ export default function AttendancePage() {
     const link = document.createElement("a");
 
     link.href = url;
-    link.download = `kehadiran-${groupName || "kumpulan"}.csv`;
+    link.download = `kehadiran-${currentGroupName || "kumpulan"}.csv`;
     link.click();
 
     URL.revokeObjectURL(url);
   }
 
-  function exportPDF() {
-    const selectedActivity = activities.find(
-      (activity) => activity.id === selectedActivityId
-    );
-
-    const summary = attendanceSummary;
-
-    const rows = filteredMembers
-      .map(
-        (member, index) => `
-        <tr>
-          <td>${index + 1}</td>
-          <td>${member.full_name || "-"}</td>
-          <td>${member.ic_number || "-"}</td>
-          <td>${getMemberUnit(member)}</td>
-          <td>${attendance[member.id] || "Hadir"}</td>
-          <td>${notes[member.id] || "-"}</td>
-        </tr>`
-      )
-      .join("");
-
-    const printWindow = window.open("", "_blank");
-
-    if (!printWindow) {
-      alert("Popup blocked. Sila allow popup untuk export PDF.");
-      return;
-    }
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Laporan Kehadiran</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
-            h1 { margin-bottom: 4px; }
-            .muted { color: #6b7280; }
-            .summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 20px 0; }
-            .card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
-            .card small { color: #6b7280; display: block; }
-            .card strong { font-size: 22px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 18px; }
-            th { background: #0f7a3b; color: white; text-align: left; }
-            th, td { border: 1px solid #d1d5db; padding: 8px; font-size: 12px; }
-            @page { size: A4 landscape; margin: 12mm; }
-          </style>
-        </head>
-        <body>
-          <h1>Laporan Kehadiran Kumpulan</h1>
-          <div class="muted">Kumpulan: <strong>${groupName || "-"}</strong></div>
-          <div class="muted">Aktiviti: <strong>${selectedActivity?.activity_name || "-"}</strong></div>
-          <div class="muted">Tarikh: <strong>${formatDate(selectedActivity?.activity_date)}</strong></div>
-          <div class="muted">Lokasi: <strong>${selectedActivity?.location || "-"}</strong></div>
-
-          <div class="summary">
-            <div class="card"><small>Jumlah Ahli</small><strong>${summary.total}</strong></div>
-            <div class="card"><small>Hadir</small><strong>${summary.hadir}</strong></div>
-            <div class="card"><small>Tidak Hadir</small><strong>${summary.tidakHadir}</strong></div>
-            <div class="card"><small>Lewat</small><strong>${summary.lewat}</strong></div>
-            <div class="card"><small>Peratus Hadir</small><strong>${summary.percentage}%</strong></div>
-          </div>
-
-          <table>
-            <thead>
-              <tr>
-                <th>Bil</th>
-                <th>Nama Ahli</th>
-                <th>No KP</th>
-                <th>Unit</th>
-                <th>Status</th>
-                <th>Catatan</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-
-          <script>
-            window.onload = function () {
-              window.print();
-            };
-          </script>
-        </body>
-      </html>
-    `);
-
-    printWindow.document.close();
-  }
-
   const selectedActivity = useMemo(() => {
-    return activities.find((activity) => activity.id === selectedActivityId) || null;
+    return (
+      activities.find((activity) => activity.id === selectedActivityId) || null
+    );
   }, [activities, selectedActivityId]);
+
+  const selectedActivityStatus = useMemo(() => {
+    return getAutoActivityStatus(selectedActivity);
+  }, [selectedActivity]);
 
   const filteredMembers = useMemo(() => {
     const keyword = search.toLowerCase().trim();
 
     return members.filter((member) => {
-      const status = attendance[member.id] || "Hadir";
+      const currentAttendanceStatus = attendance[member.id] || "Hadir";
+
       const matchSearch =
         !keyword ||
+        String(member.member_no || "").toLowerCase().includes(keyword) ||
         String(member.full_name || "").toLowerCase().includes(keyword) ||
         String(member.ic_number || "").toLowerCase().includes(keyword) ||
-        getMemberUnit(member).toLowerCase().includes(keyword);
+        String(member.email || "").toLowerCase().includes(keyword) ||
+        getMemberUnit(member).toLowerCase().includes(keyword) ||
+        getLiveGroupName(member).toLowerCase().includes(keyword);
 
       const matchStatus =
-        statusFilter === "Semua Status" || status === statusFilter;
+        statusFilter === "Semua Status" ||
+        currentAttendanceStatus === statusFilter;
 
       return matchSearch && matchStatus;
     });
-  }, [members, attendance, search, statusFilter]);
+  }, [members, attendance, search, statusFilter, groupNameById]);
 
   const attendanceSummary = useMemo(() => {
     const total = members.length;
+
     const hadir = members.filter(
       (member) => (attendance[member.id] || "Hadir") === "Hadir"
     ).length;
+
     const tidakHadir = members.filter(
       (member) => attendance[member.id] === "Tidak Hadir"
     ).length;
-    const lewat = members.filter((member) => attendance[member.id] === "Lewat")
-      .length;
+
+    const lewat = members.filter(
+      (member) => attendance[member.id] === "Lewat"
+    ).length;
+
     const bersebab = members.filter(
       (member) => attendance[member.id] === "Bersebab"
     ).length;
@@ -727,47 +836,12 @@ export default function AttendancePage() {
     };
   }, [members, attendance]);
 
-  const activityHistory = useMemo(() => {
-    const activityMap = new Map(activities.map((activity) => [activity.id, activity]));
-    const grouped: Record<
-      string,
-      {
-        activity: Activity | null;
-        total: number;
-        hadir: number;
-        tidakHadir: number;
-        lewat: number;
-        bersebab: number;
-      }
-    > = {};
-
-    attendanceHistory.forEach((record) => {
-      if (!grouped[record.activity_id]) {
-        grouped[record.activity_id] = {
-          activity: activityMap.get(record.activity_id) || null,
-          total: 0,
-          hadir: 0,
-          tidakHadir: 0,
-          lewat: 0,
-          bersebab: 0,
-        };
-      }
-
-      grouped[record.activity_id].total += 1;
-
-      if (record.status === "Hadir") grouped[record.activity_id].hadir += 1;
-      if (record.status === "Tidak Hadir") grouped[record.activity_id].tidakHadir += 1;
-      if (record.status === "Lewat") grouped[record.activity_id].lewat += 1;
-      if (record.status === "Bersebab") grouped[record.activity_id].bersebab += 1;
-    });
-
-    return Object.values(grouped).slice(0, 6);
-  }, [attendanceHistory, activities]);
-
   const selectedMemberHistory = useMemo(() => {
     if (!selectedMember) return [];
 
-    const activityMap = new Map(activities.map((activity) => [activity.id, activity]));
+    const activityMap = new Map(
+      activities.map((activity) => [activity.id, activity])
+    );
 
     return attendanceHistory
       .filter((record) => record.member_id === selectedMember.id)
@@ -777,7 +851,7 @@ export default function AttendancePage() {
       }));
   }, [selectedMember, attendanceHistory, activities]);
 
-  if (!groupId && !groupName) {
+  if (!groupId && !fallbackGroupName) {
     return (
       <DashboardLayout role="groupLeader">
         <div className="alert alert-warning rounded-4">
@@ -791,43 +865,24 @@ export default function AttendancePage() {
 
   return (
     <DashboardLayout role="groupLeader">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
         <div>
           <h2 className="fw-bold mb-1">Kehadiran Ahli</h2>
           <p className="text-muted mb-0">
-            Rekod kehadiran ahli untuk kumpulan <strong>{groupName || "-"}</strong>.
+            Rekod kehadiran ahli untuk kumpulan{" "}
+            <strong>{currentGroupName || "-"}</strong>.
           </p>
         </div>
 
         <div className="d-flex gap-2">
-          <div className="dropdown">
-            <button
-              className="btn btn-outline-secondary dropdown-toggle"
-              type="button"
-              data-bs-toggle="dropdown"
-              aria-expanded="false"
-              disabled={!selectedActivityId || members.length === 0}
-            >
-              <i className="bi bi-download me-1"></i>
-              Export
-            </button>
-
-            <ul className="dropdown-menu dropdown-menu-end">
-              <li>
-                <button className="dropdown-item" onClick={exportCSV}>
-                  <i className="bi bi-file-earmark-spreadsheet me-2 text-success"></i>
-                  Export CSV
-                </button>
-              </li>
-
-              <li>
-                <button className="dropdown-item" onClick={exportPDF}>
-                  <i className="bi bi-file-earmark-pdf me-2 text-danger"></i>
-                  Export PDF
-                </button>
-              </li>
-            </ul>
-          </div>
+          <button
+            className="btn btn-outline-secondary"
+            onClick={exportCSV}
+            disabled={!selectedActivityId || members.length === 0}
+          >
+            <i className="bi bi-download me-1"></i>
+            Export CSV
+          </button>
 
           <button
             className="btn btn-success"
@@ -851,11 +906,16 @@ export default function AttendancePage() {
                 onChange={(e) => setSelectedActivityId(e.target.value)}
               >
                 <option value="">Pilih Aktiviti</option>
-                {activities.map((activity) => (
-                  <option key={activity.id} value={activity.id}>
-                    {activity.activity_name || "-"} - {formatDate(activity.activity_date)}
-                  </option>
-                ))}
+                {activities.map((activity) => {
+                  const autoStatus = getAutoActivityStatus(activity);
+
+                  return (
+                    <option key={activity.id} value={activity.id}>
+                      {activity.activity_name || "-"} -{" "}
+                      {formatDate(activity.activity_date)} - {autoStatus.label}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -864,23 +924,37 @@ export default function AttendancePage() {
                 <div className="border rounded-4 p-3 bg-light">
                   <div className="d-flex justify-content-between align-items-start gap-3">
                     <div>
-                      <div className="fw-bold">{selectedActivity.activity_name}</div>
+                      <div className="fw-bold">
+                        {selectedActivity.activity_name || "-"}
+                      </div>
+
                       <small className="text-muted d-block">
                         <i className="bi bi-calendar-event me-1"></i>
-                        {formatDate(selectedActivity.activity_date)}
+                        Mula: {formatDateTime(selectedActivity.activity_date)}
                       </small>
+
+                      <small className="text-muted d-block">
+                        <i className="bi bi-calendar-check me-1"></i>
+                        Tamat:{" "}
+                        {formatDateTime(selectedActivity.activity_end_at)}
+                      </small>
+
                       <small className="text-muted d-block">
                         <i className="bi bi-geo-alt me-1"></i>
                         {selectedActivity.location || "-"}
                       </small>
+
+                      <small className="text-muted d-block">
+                        <i className="bi bi-people me-1"></i>
+                        {getLiveGroupName(selectedActivity)}
+                      </small>
                     </div>
 
                     <span
-                      className={`badge rounded-pill ${activityStatusBadge(
-                        selectedActivity.status
-                      )}`}
+                      className={`badge rounded-pill ${selectedActivityStatus.badgeClass}`}
                     >
-                      {selectedActivity.status || "Akan Datang"}
+                      <i className={`bi ${selectedActivityStatus.icon} me-1`}></i>
+                      {selectedActivityStatus.label}
                     </span>
                   </div>
                 </div>
@@ -908,7 +982,9 @@ export default function AttendancePage() {
           <div className="card border-0 shadow-sm rounded-4">
             <div className="card-body">
               <small className="text-muted">Hadir</small>
-              <h3 className="fw-bold text-success mb-0">{attendanceSummary.hadir}</h3>
+              <h3 className="fw-bold text-success mb-0">
+                {attendanceSummary.hadir}
+              </h3>
             </div>
           </div>
         </div>
@@ -928,7 +1004,9 @@ export default function AttendancePage() {
           <div className="card border-0 shadow-sm rounded-4">
             <div className="card-body">
               <small className="text-muted">Lewat</small>
-              <h3 className="fw-bold text-warning mb-0">{attendanceSummary.lewat}</h3>
+              <h3 className="fw-bold text-warning mb-0">
+                {attendanceSummary.lewat}
+              </h3>
             </div>
           </div>
         </div>
@@ -937,7 +1015,9 @@ export default function AttendancePage() {
           <div className="card border-0 shadow-sm rounded-4">
             <div className="card-body">
               <small className="text-muted">Bersebab</small>
-              <h3 className="fw-bold text-info mb-0">{attendanceSummary.bersebab}</h3>
+              <h3 className="fw-bold text-info mb-0">
+                {attendanceSummary.bersebab}
+              </h3>
             </div>
           </div>
         </div>
@@ -964,7 +1044,7 @@ export default function AttendancePage() {
                 </span>
                 <input
                   className="form-control"
-                  placeholder="Cari nama ahli, No KP atau unit..."
+                  placeholder="Cari No Keahlian, nama, IC/MyKid, unit..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -1015,194 +1095,146 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      <div className="row g-4 mb-4">
-        <div className="col-lg-8">
-          <div className="card border-0 shadow-sm rounded-4 h-100">
-            <div className="card-header bg-white border-0 p-4">
-              <h5 className="fw-bold mb-1">Senarai Kehadiran</h5>
-              <p className="text-muted small mb-0">
-                Tandakan status kehadiran setiap ahli untuk aktiviti dipilih.
-              </p>
-            </div>
-
-            <div className="table-responsive">
-              <table className="table align-middle mb-0">
-                <thead className="table-light">
-                  <tr>
-                    <th className="px-4 py-3">Ahli</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Catatan</th>
-                    <th className="px-4 py-3 text-end">Sejarah</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {loading || loadingAttendance ? (
-                    <tr>
-                      <td colSpan={4} className="text-center py-5">
-                        <div className="spinner-border text-success"></div>
-                        <p className="text-muted mt-3 mb-0">
-                          Memuatkan kehadiran...
-                        </p>
-                      </td>
-                    </tr>
-                  ) : filteredMembers.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="text-center py-5 text-muted">
-                        <i className="bi bi-people fs-1 d-block mb-2"></i>
-                        Tiada ahli dijumpai.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredMembers.map((member) => (
-                      <tr key={member.id}>
-                        <td className="px-4 py-3">
-                          <div className="d-flex align-items-center gap-2">
-                            <div
-                              className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold"
-                              style={{ width: 40, height: 40 }}
-                            >
-                              {getInitials(member.full_name)}
-                            </div>
-
-                            <div>
-                              <div className="fw-semibold">
-                                {member.full_name || "-"}
-                              </div>
-                              <small className="text-muted">
-                                {getMemberUnit(member)}
-                              </small>
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="px-4 py-3" style={{ minWidth: 260 }}>
-                          <div className="btn-group btn-group-sm flex-wrap" role="group">
-                            {ATTENDANCE_STATUSES.map((status) => (
-                              <button
-                                key={status}
-                                type="button"
-                                className={`btn ${
-                                  (attendance[member.id] || "Hadir") === status
-                                    ? "btn-success"
-                                    : "btn-outline-secondary"
-                                }`}
-                                onClick={() => updateAttendance(member.id, status)}
-                              >
-                                {status}
-                              </button>
-                            ))}
-                          </div>
-
-                          <div className="mt-2">
-                            <span
-                              className={`badge rounded-pill ${statusBadge(
-                                attendance[member.id]
-                              )}`}
-                            >
-                              {attendance[member.id] || "Hadir"}
-                            </span>
-                          </div>
-                        </td>
-
-                        <td className="px-4 py-3" style={{ minWidth: 220 }}>
-                          <input
-                            className="form-control form-control-sm"
-                            placeholder="Catatan jika ada"
-                            value={notes[member.id] || ""}
-                            onChange={(e) => updateNotes(member.id, e.target.value)}
-                          />
-                        </td>
-
-                        <td className="px-4 py-3 text-end">
-                          <button
-                            className="btn btn-sm btn-light border"
-                            onClick={() => setSelectedMember(member)}
-                            title="Sejarah ahli"
-                          >
-                            <i className="bi bi-clock-history text-primary"></i>
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+      <div className="card border-0 shadow-sm rounded-4">
+        <div className="card-header bg-white border-0 p-4">
+          <h5 className="fw-bold mb-1">Senarai Kehadiran</h5>
+          <p className="text-muted small mb-0">
+            Tandakan status kehadiran setiap ahli untuk aktiviti dipilih.
+          </p>
         </div>
 
-        <div className="col-lg-4">
-          <div className="card border-0 shadow-sm rounded-4 h-100">
-            <div className="card-header bg-white border-0 p-4">
-              <h5 className="fw-bold mb-1">Sejarah Aktiviti</h5>
-              <p className="text-muted small mb-0">
-                Ringkasan kehadiran aktiviti terkini.
-              </p>
-            </div>
+        <div className="table-responsive">
+          <table className="table align-middle mb-0">
+            <thead className="table-light">
+              <tr>
+                <th className="px-4 py-3">Ahli</th>
+                <th className="px-4 py-3">No Keahlian</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Catatan</th>
+                <th className="px-4 py-3 text-end">Sejarah</th>
+              </tr>
+            </thead>
 
-            <div className="card-body p-4 pt-0">
-              {activityHistory.length === 0 ? (
-                <div className="text-center text-muted py-5">
-                  <i className="bi bi-calendar-check fs-1 d-block mb-2"></i>
-                  Tiada sejarah kehadiran lagi.
-                </div>
+            <tbody>
+              {loading || loadingAttendance ? (
+                <tr>
+                  <td colSpan={5} className="text-center py-5">
+                    <div className="spinner-border text-success"></div>
+                    <p className="text-muted mt-3 mb-0">
+                      Memuatkan kehadiran...
+                    </p>
+                  </td>
+                </tr>
+              ) : filteredMembers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="text-center py-5 text-muted">
+                    <i className="bi bi-people fs-1 d-block mb-2"></i>
+                    Tiada ahli dijumpai.
+                  </td>
+                </tr>
               ) : (
-                <div className="d-grid gap-3">
-                  {activityHistory.map((item) => {
-                    const percentage = calculatePercentage(
-                      item.hadir + item.lewat + item.bersebab,
-                      item.total
-                    );
-
-                    return (
-                      <div
-                        key={item.activity?.id || Math.random()}
-                        className="border rounded-4 p-3"
-                      >
-                        <div className="fw-semibold mb-1">
-                          {item.activity?.activity_name || "Aktiviti Tidak Dijumpai"}
-                        </div>
-                        <small className="text-muted d-block mb-2">
-                          {formatDate(item.activity?.activity_date)}
-                        </small>
-
-                        <div className="d-flex justify-content-between small mb-2">
-                          <span>Hadir/Lewat/Bersebab</span>
-                          <strong>
-                            {item.hadir + item.lewat + item.bersebab}/{item.total}
-                          </strong>
+                filteredMembers.map((member) => (
+                  <tr key={member.id}>
+                    <td className="px-4 py-3">
+                      <div className="d-flex align-items-center gap-2">
+                        <div
+                          className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold"
+                          style={{ width: 40, height: 40 }}
+                        >
+                          {getInitials(member.full_name)}
                         </div>
 
-                        <div className="progress rounded-pill" style={{ height: 8 }}>
-                          <div
-                            className="progress-bar bg-success"
-                            style={{ width: `${percentage}%` }}
-                          ></div>
-                        </div>
-
-                        <div className="small text-muted mt-2">
-                          {percentage}% kehadiran
+                        <div>
+                          <div className="fw-semibold">
+                            {member.full_name || "-"}
+                          </div>
+                          <small className="text-muted d-block">
+                            IC/MyKid: {member.ic_number || "-"}
+                          </small>
+                          <small className="text-muted d-block">
+                            {getMemberUnit(member)} · {getLiveGroupName(member)}
+                          </small>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <span className="badge rounded-pill bg-light text-dark border">
+                        {member.member_no || "-"}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-3" style={{ minWidth: 260 }}>
+                      <div className="btn-group btn-group-sm flex-wrap">
+                        {ATTENDANCE_STATUSES.map((status) => (
+                          <button
+                            key={status}
+                            type="button"
+                            className={`btn ${
+                              (attendance[member.id] || "Hadir") === status
+                                ? "btn-success"
+                                : "btn-outline-secondary"
+                            }`}
+                            onClick={() => updateAttendance(member.id, status)}
+                          >
+                            {status}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="mt-2">
+                        <span
+                          className={`badge rounded-pill ${statusBadge(
+                            attendance[member.id]
+                          )}`}
+                        >
+                          {attendance[member.id] || "Hadir"}
+                        </span>
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-3" style={{ minWidth: 220 }}>
+                      <input
+                        className="form-control form-control-sm"
+                        placeholder="Catatan jika ada"
+                        value={notes[member.id] || ""}
+                        onChange={(e) => updateNotes(member.id, e.target.value)}
+                      />
+                    </td>
+
+                    <td className="px-4 py-3 text-end">
+                      <button
+                        className="btn btn-sm btn-light border"
+                        onClick={() => setSelectedMember(member)}
+                        title="Sejarah ahli"
+                      >
+                        <i className="bi bi-clock-history text-primary"></i>
+                      </button>
+                    </td>
+                  </tr>
+                ))
               )}
-            </div>
-          </div>
+            </tbody>
+          </table>
         </div>
       </div>
 
       {selectedMember && (
-        <div className="modal d-block" style={{ background: "rgba(0,0,0,.55)" }}>
+        <div
+          className="modal d-block"
+          style={{ background: "rgba(0,0,0,.55)" }}
+        >
           <div className="modal-dialog modal-dialog-centered modal-lg">
             <div className="modal-content border-0 rounded-4">
               <div className="modal-header">
                 <div>
-                  <h5 className="modal-title fw-bold">Sejarah Kehadiran Ahli</h5>
+                  <h5 className="modal-title fw-bold">
+                    Sejarah Kehadiran Ahli
+                  </h5>
                   <small className="text-muted">
-                    {selectedMember.full_name || "-"} · {getMemberUnit(selectedMember)}
+                    {selectedMember.full_name || "-"} · No Keahlian:{" "}
+                    {selectedMember.member_no || "-"} ·{" "}
+                    {getMemberUnit(selectedMember)}
                   </small>
                 </div>
 
@@ -1232,7 +1264,12 @@ export default function AttendancePage() {
 
                       <tbody>
                         {selectedMemberHistory.map((record) => (
-                          <tr key={record.id || `${record.activity_id}-${record.member_id}`}>
+                          <tr
+                            key={
+                              record.id ||
+                              `${record.activity_id}-${record.member_id}`
+                            }
+                          >
                             <td>{record.activity?.activity_name || "-"}</td>
                             <td>{formatDate(record.attendance_date)}</td>
                             <td>

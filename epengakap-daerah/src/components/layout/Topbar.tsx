@@ -17,6 +17,9 @@ type ProfileState = {
   roleName: string;
   initials: string;
   profileImageUrl: string;
+  profileImageOffsetX: number;
+  profileImageOffsetY: number;
+  profileImageZoom: number;
 };
 
 const fallbackProfile: Record<RoleType, ProfileState> = {
@@ -25,30 +28,45 @@ const fallbackProfile: Record<RoleType, ProfileState> = {
     roleName: "Super Admin",
     initials: "SA",
     profileImageUrl: "",
+    profileImageOffsetX: 0,
+    profileImageOffsetY: 0,
+    profileImageZoom: 1,
   },
   district: {
     name: "Pesuruhjaya Daerah",
     roleName: "Pesuruhjaya Daerah",
     initials: "PD",
     profileImageUrl: "",
+    profileImageOffsetX: 0,
+    profileImageOffsetY: 0,
+    profileImageZoom: 1,
   },
   assistantCommissioner: {
     name: "Penolong Pesuruhjaya",
     roleName: "Penolong Pesuruhjaya Daerah",
     initials: "PP",
     profileImageUrl: "",
+    profileImageOffsetX: 0,
+    profileImageOffsetY: 0,
+    profileImageZoom: 1,
   },
   groupLeader: {
     name: "Pemimpin Kumpulan",
     roleName: "Pemimpin Kumpulan",
     initials: "PK",
     profileImageUrl: "",
+    profileImageOffsetX: 0,
+    profileImageOffsetY: 0,
+    profileImageZoom: 1,
   },
   assistantLeader: {
     name: "Penolong Pemimpin",
     roleName: "Penolong Pemimpin",
     initials: "PT",
     profileImageUrl: "",
+    profileImageOffsetX: 0,
+    profileImageOffsetY: 0,
+    profileImageZoom: 1,
   },
 };
 
@@ -96,30 +114,97 @@ function normalizeRole(role?: string | null) {
   return role || "";
 }
 
+function clampOffset(value: number) {
+  if (Number.isNaN(value)) return 0;
+  if (value < -260) return -260;
+  if (value > 260) return 260;
+  return Math.round(value);
+}
+
+function clampZoom(value: number) {
+  if (Number.isNaN(value)) return 1;
+  if (value < 1) return 1;
+  if (value > 3) return 3;
+  return Number(value.toFixed(2));
+}
+
 function buildProfile(role: RoleType): ProfileState {
   const savedUser = getCurrentUser();
   const fallback = fallbackProfile[role];
 
-  const displayName =
-    savedUser.full_name ||
-    savedUser.name ||
-    fallback.name;
-
-  const displayRole =
-    normalizeRole(savedUser.role) ||
-    fallback.roleName;
+  const displayName = savedUser.full_name || savedUser.name || fallback.name;
+  const displayRole = normalizeRole(savedUser.role) || fallback.roleName;
 
   return {
     name: displayName,
     roleName: displayRole,
     initials: getInitials(displayName || fallback.name) || fallback.initials,
     profileImageUrl: savedUser.profile_image_url || "",
+    profileImageOffsetX: clampOffset(Number(savedUser.profile_image_offset_x ?? 0)),
+    profileImageOffsetY: clampOffset(Number(savedUser.profile_image_offset_y ?? 0)),
+    profileImageZoom: clampZoom(Number(savedUser.profile_image_zoom ?? 1)),
   };
 }
 
-export default function Topbar({
-  role = "district",
-}: TopbarProps) {
+function ProfileAvatar({
+  profile,
+  size = 42,
+}: {
+  profile: ProfileState;
+  size?: number;
+}) {
+  if (!profile.profileImageUrl) {
+    return (
+      <div
+        className="bg-success text-white rounded-circle d-flex align-items-center justify-content-center fw-bold"
+        style={{
+          width: size,
+          height: size,
+          fontSize: size <= 42 ? 14 : 18,
+          flexShrink: 0,
+        }}
+      >
+        {profile.initials}
+      </div>
+    );
+  }
+
+  const scaleRatio = size / 320;
+
+  return (
+    <div
+      className="rounded-circle border overflow-hidden bg-light"
+      style={{
+        width: size,
+        height: size,
+        position: "relative",
+        flexShrink: 0,
+      }}
+    >
+      <img
+        src={profile.profileImageUrl}
+        alt="Profile"
+        draggable={false}
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          width: size,
+          height: size,
+          objectFit: "cover",
+          transform: `translate(calc(-50% + ${
+            profile.profileImageOffsetX * scaleRatio
+          }px), calc(-50% + ${
+            profile.profileImageOffsetY * scaleRatio
+          }px)) scale(${profile.profileImageZoom})`,
+          transformOrigin: "center center",
+        }}
+      />
+    </div>
+  );
+}
+
+export default function Topbar({ role = "district" }: TopbarProps) {
   const [profile, setProfile] = useState<ProfileState>(() =>
     buildProfile(role)
   );
@@ -164,25 +249,7 @@ export default function Topbar({
         </button>
 
         <div className="d-flex align-items-center gap-2 border-start ps-3">
-          {profile.profileImageUrl ? (
-            <img
-              src={profile.profileImageUrl}
-              alt="Profile"
-              className="rounded-circle border bg-light"
-              style={{
-                width: 42,
-                height: 42,
-                objectFit: "cover",
-              }}
-            />
-          ) : (
-            <div
-              className="bg-success text-white rounded-circle d-flex align-items-center justify-content-center fw-bold"
-              style={{ width: 42, height: 42 }}
-            >
-              {profile.initials}
-            </div>
-          )}
+          <ProfileAvatar profile={profile} size={42} />
 
           <div className="d-none d-md-block">
             <div className="fw-semibold small">{profile.name}</div>
