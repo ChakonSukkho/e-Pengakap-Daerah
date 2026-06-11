@@ -5,7 +5,6 @@ import {
   useState,
   type ChangeEvent,
 } from "react";
-import * as XLSX from "xlsx";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabaseClient";
@@ -521,35 +520,7 @@ async function parseImportFile(file: File): Promise<Record<string, string>[]> {
     return parseCSVText(text);
   }
 
-  if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
-    const buffer = await file.arrayBuffer();
-
-    const workbook = XLSX.read(buffer, {
-      type: "array",
-      cellDates: true,
-    });
-
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-
-    const rows = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, {
-      defval: "",
-      raw: false,
-    });
-
-    return rows.map((row, index) => {
-      const item: Record<string, string> = {};
-
-      Object.entries(row).forEach(([key, value]) => {
-        item[normalizeHeader(key)] = String(value ?? "").trim();
-      });
-
-      item.__rowNumber = String(index + 2);
-      return item;
-    });
-  }
-
-  throw new Error("Format fail tidak disokong. Sila guna CSV, TXT, XLSX atau XLS.");
+  throw new Error("Format fail tidak disokong. Sila guna CSV atau TXT sahaja.");
 }
 
 function getImportValue(row: Record<string, string>, keys: string[]) {
@@ -1017,7 +988,7 @@ export default function GroupDetailPage() {
       !fileName.endsWith(".xlsx") &&
       !fileName.endsWith(".xls")
     ) {
-      alert("Sila guna fail CSV, TXT, XLSX atau XLS sahaja.");
+      alert("Sila guna fail CSV, TXT atau XLS sahaja.");
       event.target.value = "";
       setImportFile(null);
       return;
@@ -2299,7 +2270,7 @@ export default function GroupDetailPage() {
                     </div>
 
                     <div className="text-muted mt-2">
-                      Sokong fail CSV, TXT, XLSX dan XLS.
+                      Sokong fail CSV, TXT dan XLS.
                     </div>
 
                     {importFile && (
