@@ -429,16 +429,6 @@ export default function DistrictDashboard() {
                     className="rounded-4 p-3 h-100"
                     style={{ background: "rgba(255,255,255,.20)" }}
                   >
-                    <div className="fs-2 fw-bold">{stats.activeGroups}</div>
-                    <div className="small opacity-75">Kumpulan Aktif</div>
-                  </div>
-                </div>
-
-                <div className="col-6 col-xl">
-                  <div
-                    className="rounded-4 p-3 h-100"
-                    style={{ background: "rgba(255,255,255,.20)" }}
-                  >
                     <div className="fs-2 fw-bold">{stats.groupLeaders}</div>
                     <div className="small opacity-75">Pemimpin Kumpulan</div>
                   </div>
@@ -514,13 +504,6 @@ export default function DistrictDashboard() {
                   <i className="bi bi-journal-text me-2"></i>
                   Lihat Log Audit
                 </Link>
-              </div>
-
-              <hr className="my-4" />
-
-              <div className="alert alert-light border rounded-4 mb-0">
-                <i className="bi bi-info-circle text-success me-2"></i>
-                Data dashboard ini hanya memaparkan rekod untuk daerah anda.
               </div>
             </div>
           </div>

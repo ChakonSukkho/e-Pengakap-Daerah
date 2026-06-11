@@ -1731,148 +1731,197 @@ export default function MemberManagementPage() {
         </div>
       </div>
 
-      <div className="card border-0 shadow-sm rounded-4">
-        <div className="card-body table-responsive">
-          <table className="table table-hover align-middle mb-0">
-            <thead>
-              <tr>
-                <th>Nama</th>
-                <th>No Keahlian</th>
-                <th>No IC / MyKid</th>
-                <th>Kumpulan</th>
-                <th>Kategori</th>
-                <th>Sah Sehingga</th>
-                <th>Umur</th>
-                <th>Jantina</th>
-                <th>Telefon Penjaga</th>
-                <th>Status</th>
-                <th className="text-end">Tindakan</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={11} className="text-center py-5">
-                    <div className="spinner-border text-success"></div>
-                    <p className="text-muted mt-3 mb-0">Memuatkan data...</p>
-                  </td>
-                </tr>
-              ) : filteredMembers.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="text-center py-5 text-muted">
-                    <i className="bi bi-inbox fs-1 d-block mb-2"></i>
-                    Tiada ahli dijumpai.
-                  </td>
-                </tr>
-              ) : (
-                filteredMembers.map((member) => (
-                  <tr key={member.id}>
-                    <td>
-                      <div className="d-flex align-items-center gap-2">
-                        <div
-                          className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold"
-                          style={{ width: 36, height: 36 }}
-                        >
-                          {getInitials(member.full_name || "-")}
-                        </div>
-
-                        <div>
-                          <div className="fw-semibold">{member.full_name}</div>
-                          <small className="text-muted">
-                            {member.email || "-"}
-                          </small>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td>{member.member_no || "-"}</td>
-                    <td>{displayMalaysianIC(member.ic_number)}</td>
-                    <td>{getLiveGroupName(member)}</td>
-                    <td>{member.category || member.scout_category || "-"}</td>
-
-                    <td>
-                      {member.membership_expiry_date ? (
-                        <span
-                          className={`badge ${getMembershipExpiryClass(
-                            member.membership_expiry_date
-                          )}`}
-                        >
-                          {displayDate(member.membership_expiry_date)}
-                        </span>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-
-                    <td>{member.age || "-"}</td>
-                    <td>{member.gender || "-"}</td>
-                    <td>{displayMalaysianPhone(member.guardian_phone)}</td>
-
-                    <td>
-                      <span
-                        className={`badge ${
-                          isActive(member.status)
-                            ? "bg-success"
-                            : "bg-secondary"
-                        }`}
-                      >
-                        {normalizeStatus(member.status)}
-                      </span>
-                    </td>
-
-                    <td className="text-end">
-                      <div className="btn-group">
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-light border"
-                          onClick={() => openViewModal(member)}
-                          title="Lihat ahli"
-                          aria-label="Lihat ahli"
-                        >
-                          <i className="bi bi-eye text-primary"></i>
-                        </button>
-
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-light border"
-                          onClick={() => openEditModal(member)}
-                          title="Edit ahli"
-                          aria-label="Edit ahli"
-                        >
-                          <i className="bi bi-pencil-square text-secondary"></i>
-                        </button>
-
-                        {isActive(member.status) && (
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-light border"
-                            onClick={() => openDeleteModal(member)}
-                            title="Nyahaktif ahli"
-                            aria-label="Nyahaktif ahli"
-                          >
-                            <i className="bi bi-person-dash text-warning"></i>
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-light border"
-                          onClick={() => openRemoveModal(member)}
-                          title="Padam ahli salah masuk"
-                          aria-label="Padam ahli salah masuk"
-                        >
-                          <i className="bi bi-trash text-danger"></i>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      <div className="card border-0 shadow-sm rounded-4 overflow-hidden">
+  <div className="card-header bg-white border-0 px-4 pt-4 pb-3">
+    <div className="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-2">
+      <div>
+        <h5 className="fw-bold mb-1">Senarai Ahli Pengakap</h5>
+        <p className="text-muted small mb-0">
+          Paparan ahli lebih kemas. Scroll ke kanan untuk lihat maklumat penuh.
+        </p>
       </div>
+
+      <span className="badge bg-success-subtle text-success px-3 py-2">
+        {filteredMembers.length} ahli dipaparkan
+      </span>
+    </div>
+  </div>
+
+  <div
+    className="table-responsive"
+    style={{
+      overflowX: "auto",
+      WebkitOverflowScrolling: "touch",
+    }}
+  >
+    <table
+      className="table table-hover align-middle mb-0"
+      style={{
+        minWidth: "1350px",
+        tableLayout: "fixed",
+      }}
+    >
+      <thead className="table-light">
+        <tr>
+          <th style={{ width: "330px" }}>Nama</th>
+          <th style={{ width: "130px" }}>No Keahlian</th>
+          <th style={{ width: "190px" }}>Kumpulan</th>
+          <th style={{ width: "170px" }}>Kategori</th>
+          <th style={{ width: "140px" }}>Sah Sehingga</th>
+          <th style={{ width: "110px" }}>Status</th>
+          <th style={{ width: "150px" }} className="text-end">
+            Tindakan
+          </th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {loading ? (
+          <tr>
+            <td colSpan={11} className="text-center py-5">
+              <div className="spinner-border text-success"></div>
+              <p className="text-muted mt-3 mb-0">Memuatkan data...</p>
+            </td>
+          </tr>
+        ) : filteredMembers.length === 0 ? (
+          <tr>
+            <td colSpan={11} className="text-center py-5 text-muted">
+              <i className="bi bi-inbox fs-1 d-block mb-2"></i>
+              Tiada ahli dijumpai.
+            </td>
+          </tr>
+        ) : (
+          filteredMembers.map((member) => (
+            <tr key={member.id}>
+              <td>
+                <div className="d-flex align-items-center gap-3">
+                  <div
+                    className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold flex-shrink-0"
+                    style={{ width: 44, height: 44 }}
+                  >
+                    {getInitials(member.full_name || "-")}
+                  </div>
+
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      className="fw-semibold text-truncate"
+                      title={member.full_name}
+                      style={{ maxWidth: 180 }}
+                    >
+                      {member.full_name}
+                    </div>
+
+                    <small
+                      className="text-muted text-truncate d-block"
+                      title={member.email || "-"}
+                      style={{ maxWidth: 180 }}
+                    >
+                      {member.email || "-"}
+                    </small>
+                  </div>
+                </div>
+              </td>
+
+              <td>
+                <span className="fw-semibold">{member.member_no || "-"}</span>
+              </td>
+
+              <td>
+                <span
+                  className="d-inline-block text-truncate"
+                  title={getLiveGroupName(member)}
+                  style={{ maxWidth: 170 }}
+                >
+                  {getLiveGroupName(member)}
+                </span>
+              </td>
+
+              <td>
+                <span
+                  className="d-inline-block text-truncate"
+                  title={member.category || member.scout_category || "-"}
+                  style={{ maxWidth: 150 }}
+                >
+                  {member.category || member.scout_category || "-"}
+                </span>
+              </td>
+
+              <td>
+                {member.membership_expiry_date ? (
+                  <span
+                    className={`badge ${getMembershipExpiryClass(
+                      member.membership_expiry_date
+                    )} px-3 py-2`}
+                  >
+                    {displayDate(member.membership_expiry_date)}
+                  </span>
+                ) : (
+                  "-"
+                )}
+              </td>
+
+              <td>
+                <span
+                  className={`badge px-3 py-2 ${
+                    isActive(member.status) ? "bg-success" : "bg-secondary"
+                  }`}
+                >
+                  {normalizeStatus(member.status)}
+                </span>
+              </td>
+
+              <td className="text-end">
+                <div className="btn-group">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border"
+                    onClick={() => openViewModal(member)}
+                    title="Lihat ahli"
+                    aria-label="Lihat ahli"
+                  >
+                    <i className="bi bi-eye text-primary"></i>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border"
+                    onClick={() => openEditModal(member)}
+                    title="Edit ahli"
+                    aria-label="Edit ahli"
+                  >
+                    <i className="bi bi-pencil-square text-secondary"></i>
+                  </button>
+
+                  {isActive(member.status) && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-light border"
+                      onClick={() => openDeleteModal(member)}
+                      title="Nyahaktif ahli"
+                      aria-label="Nyahaktif ahli"
+                    >
+                      <i className="bi bi-person-dash text-warning"></i>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-light border"
+                    onClick={() => openRemoveModal(member)}
+                    title="Padam ahli salah masuk"
+                    aria-label="Padam ahli salah masuk"
+                  >
+                    <i className="bi bi-trash text-danger"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
+  </div>
+</div>
 
       {showUploadModal && (
         <div

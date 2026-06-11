@@ -210,10 +210,12 @@ export default function ActivityManagementPage() {
   );
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Activity | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Activity | null>(null);
 
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const currentUser = useMemo(() => getCurrentUser(), []);
   const role = currentUser.role || "";
@@ -506,6 +508,16 @@ export default function ActivityManagementPage() {
     setShowCancelModal(true);
   }
 
+  function openDeleteModal(activity: Activity) {
+    if (!canManageActivity(role)) {
+      alert("Anda tidak mempunyai kebenaran untuk memadam aktiviti.");
+      return;
+    }
+
+    setDeleteTarget(activity);
+    setShowDeleteModal(true);
+  }
+
   function validateForm() {
     if (!form.activity_name.trim()) {
       alert("Sila isi nama aktiviti.");
@@ -661,6 +673,44 @@ export default function ActivityManagementPage() {
     await fetchActivities();
     setCancelTarget(null);
     setShowCancelModal(false);
+    setSaving(false);
+  }
+
+  async function deleteActivity() {
+    if (!deleteTarget) return;
+    
+    setSaving(true);
+    
+    let query = supabase
+      .from("activities")
+      .update({
+        status: "Tidak Aktif",
+        deleted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", deleteTarget.id)
+      .is("deleted_at", null);
+    
+    query = applyDistrictScope(query);
+    query = applyGroupScopeForUpdate(query, deleteTarget);
+    
+    const { error } = await query;
+    
+    if (error) {
+      alert(error.message);
+      setSaving(false);
+      return;
+    }
+  
+    await addAuditLog(
+      "DELETE",
+      `Padam aktiviti: ${deleteTarget.activity_name || "-"}`,
+      deleteTarget.id
+    );
+  
+    await fetchActivities();
+    setDeleteTarget(null);
+    setShowDeleteModal(false);
     setSaving(false);
   }
 
@@ -876,6 +926,18 @@ export default function ActivityManagementPage() {
                                 aria-label="Batalkan aktiviti"
                               >
                                 <i className="bi bi-x-circle text-danger"></i>
+                              </button>
+                            )}
+
+                            {canManageActivity(role) && (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-light border"
+                                onClick={() => openDeleteModal(activity)}
+                                title="Padam aktiviti"
+                                aria-label="Padam aktiviti"
+                              >
+                                <i className="bi bi-trash text-danger"></i>
                               </button>
                             )}
                         </div>
@@ -1227,6 +1289,97 @@ export default function ActivityManagementPage() {
           </div>
         </div>
       )}
+
+      {showDeleteModal && deleteTarget && (
+        <div
+          className="modal d-block"
+          tabIndex={-1}
+          style={{ background: "rgba(0,0,0,.55)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content border-0 rounded-4">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold text-danger">
+                  Padam Aktiviti
+                </h5>
+            
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteTarget(null);
+                  }}
+                  disabled={saving}
+                ></button>
+              </div>
+                
+              <div className="modal-body">
+                <div className="alert alert-danger rounded-4">
+                  <div className="fw-semibold mb-1">
+                    Aktiviti ini akan dibuang daripada senarai.
+                  </div>
+                  <div className="small">
+                    Sistem guna soft delete untuk audit log. Rekod tidak dipadam kekal daripada database.
+                  </div>
+                </div>
+                
+                <p className="mb-1">
+                  Adakah anda pasti mahu padam aktiviti ini?
+                </p>
+                
+                <strong>{deleteTarget.activity_name || "-"}</strong>
+                
+                <div className="small text-muted mt-2">
+                  Kumpulan: {getLiveGroupName(deleteTarget)}
+                </div>
+                
+                <div className="small text-muted">
+                  Mula: {formatDateTime(deleteTarget.activity_date)}
+                </div>
+                
+                <div className="small text-muted">
+                  Lokasi: {deleteTarget.location || "-"}
+                </div>
+              </div>
+                
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteTarget(null);
+                  }}
+                  disabled={saving}
+                >
+                  Batal
+                </button>
+                
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={deleteActivity}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-1"></span>
+                      Memadam...
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-trash me-1"></i>
+                      Ya, Padam
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </DashboardLayout>
   );
 }
