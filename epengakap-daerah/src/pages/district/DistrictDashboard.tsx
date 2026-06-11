@@ -3,14 +3,12 @@ import { Link } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { supabase } from "../../services/supabaseClient";
 
-type MemberRow = {
+type Member = {
   id: string;
-  full_name?: string | null;
+  full_name: string | null;
+  member_no?: string | null;
   group_id?: string | null;
   group_name?: string | null;
-  category?: string | null;
-  scout_category?: string | null;
-  gender?: string | null;
   status?: string | null;
   district?: string | null;
   district_environment_id?: string | null;
@@ -18,13 +16,10 @@ type MemberRow = {
   deleted_at?: string | null;
 };
 
-type GroupRow = {
+type Group = {
   id: string;
-  group_name?: string | null;
+  group_name: string | null;
   school_name?: string | null;
-  group_code?: string | null;
-  group_type?: string | null;
-  leader_name?: string | null;
   status?: string | null;
   district?: string | null;
   district_environment_id?: string | null;
@@ -32,42 +27,28 @@ type GroupRow = {
   deleted_at?: string | null;
 };
 
-type UserRow = {
+type SystemUser = {
   id: string;
-  full_name?: string | null;
-  name?: string | null;
+  full_name: string | null;
   email?: string | null;
-  role?: string | null;
+  role: string | null;
+  status?: string | null;
   district?: string | null;
   district_environment_id?: string | null;
   group_id?: string | null;
   group_name?: string | null;
-  status?: string | null;
-  created_at?: string | null;
   deleted_at?: string | null;
 };
 
-type ActivityRow = {
-  id: string;
-  activity_name?: string | null;
-  title?: string | null;
-  group_name?: string | null;
-  activity_date?: string | null;
-  date?: string | null;
-  status?: string | null;
-  district?: string | null;
-  district_environment_id?: string | null;
-  created_at?: string | null;
-};
-
-type AuditLogRow = {
-  id: string;
-  actor_name?: string | null;
-  action?: string | null;
-  module?: string | null;
-  description?: string | null;
-  district_environment_id?: string | null;
-  created_at?: string | null;
+type DashboardStats = {
+  totalMembers: number;
+  activeMembers: number;
+  inactiveMembers: number;
+  totalGroups: number;
+  activeGroups: number;
+  groupLeaders: number;
+  assistantLeaders: number;
+  assistantCommissioners: number;
 };
 
 function getCurrentUser() {
@@ -82,89 +63,41 @@ function getCurrentUser() {
   }
 }
 
-function getUserDistrict() {
-  const currentUser = getCurrentUser();
-
-  return (
-    currentUser.district ||
-    currentUser.district_name ||
-    currentUser.daerah ||
-    ""
-  );
-}
-
-function getUserState() {
-  const currentUser = getCurrentUser();
-
-  return (
-    currentUser.state ||
-    currentUser.state_name ||
-    currentUser.negeri ||
-    ""
-  );
-}
-
 function normalizeStatus(status?: string | null) {
   const value = String(status || "").trim().toLowerCase();
 
-  if (value === "aktif" || value === "active") return "Aktif";
+  if (value === "active" || value === "aktif") return "Aktif";
+
   if (
-    value === "tidak aktif" ||
     value === "inactive" ||
+    value === "tidak aktif" ||
     value === "suspended" ||
     value === "digantung"
   ) {
     return "Tidak Aktif";
   }
 
-  if (value === "archived" || value === "arkib") return "Arkib";
-
-  return status || "-";
-}
-
-function isActive(status?: string | null) {
-  const value = String(status || "").trim().toLowerCase();
-  return value === "aktif" || value === "active";
-}
-
-function isInactive(status?: string | null) {
-  const value = String(status || "").trim().toLowerCase();
-
-  return (
-    value === "tidak aktif" ||
-    value === "inactive" ||
-    value === "suspended" ||
-    value === "digantung"
-  );
+  return status || "Aktif";
 }
 
 function normalizeRole(role?: string | null) {
-  const value = String(role || "").trim();
+  if (role === "District") return "Pesuruhjaya Daerah";
+  if (role === "Assistant Commissioner") return "Penolong Pesuruhjaya";
+  if (role === "Penolong Pesuruhjaya Daerah") return "Penolong Pesuruhjaya";
+  if (role === "Group Leader") return "Pemimpin Kumpulan";
+  if (role === "Assistant Leader") return "Penolong Pemimpin";
 
-  if (!value) return "-";
-  if (value === "Penolong Pesuruhjaya") return "Penolong Pesuruhjaya Daerah";
-  if (value === "District") return "Pesuruhjaya Daerah";
-
-  return value;
+  return role || "-";
 }
 
-function getMemberCategory(member: MemberRow) {
-  return member.scout_category || member.category || "Tidak Ditetapkan";
-}
-
-function getActivityName(activity: ActivityRow) {
-  return activity.activity_name || activity.title || "Aktiviti Tanpa Nama";
-}
-
-function getActivityDate(activity: ActivityRow) {
-  return activity.activity_date || activity.date || activity.created_at || "";
+function isActive(status?: string | null) {
+  return normalizeStatus(status) === "Aktif";
 }
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
 
   const date = new Date(value);
-
   if (Number.isNaN(date.getTime())) return "-";
 
   return date.toLocaleDateString("ms-MY", {
@@ -174,276 +107,63 @@ function formatDate(value?: string | null) {
   });
 }
 
-function formatDateTime(value?: string | null) {
-  if (!value) return "-";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return "-";
-
-  return date.toLocaleString("ms-MY", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function percentage(value: number, total: number) {
+function getPercent(value: number, total: number) {
   if (!total) return 0;
   return Math.round((value / total) * 100);
 }
 
-function softBg(index: number) {
-  const classes = [
-    "bg-success-subtle text-success",
-    "bg-primary-subtle text-primary",
-    "bg-warning-subtle text-warning",
-    "bg-info-subtle text-info",
-    "bg-danger-subtle text-danger",
-    "bg-secondary-subtle text-secondary",
-  ];
-
-  return classes[index % classes.length];
-}
-
-function StatCard({
-  title,
-  value,
-  subtitle,
-  icon,
-  colorClass,
-}: {
-  title: string;
-  value: number | string;
-  subtitle: string;
-  icon: string;
-  colorClass: string;
-}) {
-  return (
-    <div className="card border-0 shadow-sm rounded-4 h-100">
-      <div className="card-body p-4">
-        <div className="d-flex justify-content-between align-items-start">
-          <div>
-            <small className="text-muted">{title}</small>
-            <h2 className="fw-bold mb-1">{value}</h2>
-            <small className="text-muted">{subtitle}</small>
-          </div>
-
-          <div
-            className={`rounded-4 d-flex align-items-center justify-content-center ${colorClass}`}
-            style={{ width: 52, height: 52 }}
-          >
-            <i className={`bi ${icon} fs-4`}></i>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+function getInitials(name?: string | null) {
+  return String(name || "-")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
 }
 
 export default function DistrictDashboard() {
-  const currentUser = getCurrentUser();
+  const currentUser = useMemo(() => getCurrentUser(), []);
 
-  const [members, setMembers] = useState<MemberRow[]>([]);
-  const [groups, setGroups] = useState<GroupRow[]>([]);
-  const [users, setUsers] = useState<UserRow[]>([]);
-  const [activities, setActivities] = useState<ActivityRow[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([]);
+  const districtEnvironmentId =
+    currentUser.district_environment_id ||
+    currentUser.districtEnvironmentId ||
+    null;
 
-  const [officialName, setOfficialName] = useState("");
-  const [environmentStatus, setEnvironmentStatus] = useState("Aktif");
+  const district =
+    currentUser.district ||
+    currentUser.district_name ||
+    currentUser.daerah ||
+    "-";
+
+  const displayName =
+    currentUser.full_name ||
+    currentUser.name ||
+    "Pesuruhjaya Daerah";
+
+  const districtTitle =
+    currentUser.district_name ||
+    currentUser.district ||
+    "Daerah";
+
+  const scoutDistrict =
+    currentUser.scout_district ||
+    currentUser.daerah_pengakap ||
+    currentUser.group_name ||
+    "";
+
   const [loading, setLoading] = useState(true);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [users, setUsers] = useState<SystemUser[]>([]);
 
-  const district = getUserDistrict();
-  const state = getUserState();
-  const districtEnvironmentId = currentUser.district_environment_id || "";
-
-  useEffect(() => {
-    loadDashboard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function applyDistrictScope(query: any) {
-    if (districtEnvironmentId) {
-      return query.eq("district_environment_id", districtEnvironmentId);
-    }
-
-    if (district) {
-      return query.eq("district", district);
-    }
-
-    return query;
-  }
-
-  async function loadDashboard() {
-    setLoading(true);
-
-    if (!districtEnvironmentId && !district) {
-      alert(
-        "Akaun ini belum mempunyai district environment. Sila hubungi Super Admin."
-      );
-      setLoading(false);
-      return;
-    }
-
-    await Promise.all([
-      fetchDistrictSettings(),
-      fetchMembers(),
-      fetchGroups(),
-      fetchUsers(),
-      fetchActivities(),
-      fetchAuditLogs(),
-    ]);
-
-    setLoading(false);
-  }
-
-  async function fetchDistrictSettings() {
-    try {
-      let query = supabase.from("district_settings").select("*").limit(1);
-
-      if (districtEnvironmentId) {
-        query = query.eq("district_environment_id", districtEnvironmentId);
-      } else if (district) {
-        query = query.eq("district", district);
-      }
-
-      const { data, error } = await query.maybeSingle();
-
-      if (error) {
-        console.warn("District settings error:", error.message);
-        return;
-      }
-
-      if (data) {
-        setOfficialName(data.official_name || "");
-        setEnvironmentStatus(normalizeStatus(data.status));
-        return;
-      }
-
-      // Fallback kepada district_environments kalau district_settings belum wujud.
-      if (districtEnvironmentId) {
-        const { data: environmentData, error: environmentError } = await supabase
-          .from("district_environments")
-          .select("official_name, status")
-          .eq("id", districtEnvironmentId)
-          .maybeSingle();
-
-        if (!environmentError && environmentData) {
-          setOfficialName(environmentData.official_name || "");
-          setEnvironmentStatus(normalizeStatus(environmentData.status));
-        }
-      }
-    } catch (error) {
-      console.warn("Failed to fetch district settings:", error);
-    }
-  }
-
-  async function fetchMembers() {
-    let query = supabase
-      .from("members")
-      .select("*")
-      .is("deleted_at", null);
-
-    query = applyDistrictScope(query);
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error(error.message);
-      setMembers([]);
-      return;
-    }
-
-    setMembers(data || []);
-  }
-
-  async function fetchGroups() {
-    let query = supabase
-      .from("groups")
-      .select("*")
-      .is("deleted_at", null);
-
-    query = applyDistrictScope(query);
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error(error.message);
-      setGroups([]);
-      return;
-    }
-
-    setGroups(data || []);
-  }
-
-  async function fetchUsers() {
-    let query = supabase
-      .from("system_users")
-      .select("*")
-      .is("deleted_at", null);
-
-    query = applyDistrictScope(query);
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error(error.message);
-      setUsers([]);
-      return;
-    }
-
-    setUsers(data || []);
-  }
-
-  async function fetchActivities() {
-    let query = supabase
-      .from("activities")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    query = applyDistrictScope(query);
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error(error.message);
-      setActivities([]);
-      return;
-    }
-
-    setActivities(data || []);
-  }
-
-  async function fetchAuditLogs() {
-    let query = supabase
-      .from("audit_logs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(5);
-
-    query = applyDistrictScope(query);
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error(error.message);
-      setAuditLogs([]);
-      return;
-    }
-
-    setAuditLogs(data || []);
-  }
-
-  const stats = useMemo(() => {
+  const stats = useMemo<DashboardStats>(() => {
     const activeMembers = members.filter((member) =>
       isActive(member.status)
     ).length;
 
-    const inactiveMembers = members.filter((member) =>
-      isInactive(member.status)
+    const inactiveMembers = members.filter(
+      (member) => !isActive(member.status)
     ).length;
 
     const activeGroups = groups.filter((group) =>
@@ -464,89 +184,186 @@ export default function DistrictDashboard() {
 
     const assistantCommissioners = users.filter(
       (user) =>
-        normalizeRole(user.role) === "Penolong Pesuruhjaya Daerah" &&
+        normalizeRole(user.role) === "Penolong Pesuruhjaya" &&
         isActive(user.status)
     ).length;
 
     return {
+      totalMembers: members.length,
       activeMembers,
       inactiveMembers,
-      totalMembers: members.length,
-      activeGroups,
       totalGroups: groups.length,
+      activeGroups,
       groupLeaders,
       assistantLeaders,
       assistantCommissioners,
     };
   }, [members, groups, users]);
 
-  const membersByCategory = useMemo(() => {
-    const result: Record<string, number> = {};
+  const recentMembers = useMemo(() => {
+    return [...members]
+      .sort((a, b) => {
+        const dateA = new Date(a.created_at || 0).getTime();
+        const dateB = new Date(b.created_at || 0).getTime();
 
-    members.forEach((member) => {
-      const category = getMemberCategory(member);
-      result[category] = (result[category] || 0) + 1;
-    });
-
-    return Object.entries(result)
-      .map(([category, count]) => ({ category, count }))
-      .sort((a, b) => b.count - a.count)
+        return dateB - dateA;
+      })
       .slice(0, 5);
   }, [members]);
 
-  const membersByGroup = useMemo(() => {
-    const result: Record<string, number> = {};
+  useEffect(() => {
+    fetchDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    members.forEach((member) => {
-      const groupName = member.group_name || "Tanpa Kumpulan";
-      result[groupName] = (result[groupName] || 0) + 1;
-    });
+  function applyDistrictScope(query: any) {
+    if (districtEnvironmentId && district && district !== "-") {
+      return query.or(
+        `district_environment_id.eq.${districtEnvironmentId},and(district_environment_id.is.null,district.eq.${district})`
+      );
+    }
 
-    return Object.entries(result)
-      .map(([groupName, count]) => ({ groupName, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
-  }, [members]);
+    if (districtEnvironmentId) {
+      return query.eq("district_environment_id", districtEnvironmentId);
+    }
 
-  const upcomingActivities = useMemo(() => {
-    const now = new Date();
+    if (district && district !== "-") {
+      return query.eq("district", district);
+    }
 
-    return activities
-      .filter((activity) => {
-        const dateValue = getActivityDate(activity);
+    return query;
+  }
 
-        if (!dateValue) return false;
+  async function fetchDashboardData() {
+    setLoading(true);
 
-        const activityDate = new Date(dateValue);
+    await Promise.all([fetchMembers(), fetchGroups(), fetchUsers()]);
 
-        if (Number.isNaN(activityDate.getTime())) return false;
+    setLoading(false);
+  }
 
-        return activityDate >= now;
-      })
-      .sort(
-        (a, b) =>
-          new Date(getActivityDate(a)).getTime() -
-          new Date(getActivityDate(b)).getTime()
+  async function fetchMembers() {
+    let query = supabase
+      .from("members")
+      .select(
+        "id, full_name, member_no, group_id, group_name, status, district, district_environment_id, created_at, deleted_at"
       )
-      .slice(0, 4);
-  }, [activities]);
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
 
-  const recentGroups = useMemo(() => {
-    return [...groups]
-      .sort(
-        (a, b) =>
-          new Date(b.created_at || "").getTime() -
-          new Date(a.created_at || "").getTime()
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.warn("Dashboard members error:", error.message);
+      setMembers([]);
+      return;
+    }
+
+    setMembers((data || []) as Member[]);
+  }
+
+  async function fetchGroups() {
+    let query = supabase
+      .from("groups")
+      .select(
+        "id, group_name, school_name, status, district, district_environment_id, created_at, deleted_at"
       )
-      .slice(0, 4);
-  }, [groups]);
+      .is("deleted_at", null)
+      .order("group_name", { ascending: true });
+
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.warn("Dashboard groups error:", error.message);
+      setGroups([]);
+      return;
+    }
+
+    setGroups((data || []) as Group[]);
+  }
+
+  async function fetchUsers() {
+    let query = supabase
+      .from("system_users")
+      .select(
+        "id, full_name, email, role, status, district, district_environment_id, group_id, group_name, deleted_at"
+      )
+      .is("deleted_at", null);
+
+    query = applyDistrictScope(query);
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.warn("Dashboard users error:", error.message);
+      setUsers([]);
+      return;
+    }
+
+    setUsers((data || []) as SystemUser[]);
+  }
+
+  function StatCard({
+    title,
+    value,
+    subtitle,
+    icon,
+    variant = "success",
+  }: {
+    title: string;
+    value: number | string;
+    subtitle: string;
+    icon: string;
+    variant?: "success" | "primary" | "warning" | "secondary" | "info";
+  }) {
+    const bgClass =
+      variant === "success"
+        ? "bg-success-subtle text-success"
+        : variant === "primary"
+        ? "bg-primary-subtle text-primary"
+        : variant === "warning"
+        ? "bg-warning-subtle text-warning"
+        : variant === "info"
+        ? "bg-info-subtle text-info"
+        : "bg-secondary-subtle text-secondary";
+
+    return (
+      <div className="card border-0 shadow-sm rounded-4 h-100">
+        <div className="card-body p-4">
+          <div className="d-flex align-items-start justify-content-between gap-3">
+            <div>
+              <div className="text-muted mb-2">{title}</div>
+              <h2 className="fw-bold mb-2">{value}</h2>
+              <div className="small text-muted">{subtitle}</div>
+            </div>
+
+            <div
+              className={`rounded-4 d-flex align-items-center justify-content-center ${bgClass}`}
+              style={{
+                width: 58,
+                height: 58,
+                fontSize: 24,
+                flexShrink: 0,
+              }}
+            >
+              <i className={`bi ${icon}`}></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
       <DashboardLayout role="district">
         <div className="text-center py-5">
           <div className="spinner-border text-success"></div>
-          <p className="text-muted mt-3 mb-0">Memuatkan dashboard daerah...</p>
+          <p className="text-muted mt-3 mb-0">Memuatkan dashboard...</p>
         </div>
       </DashboardLayout>
     );
@@ -555,71 +372,95 @@ export default function DistrictDashboard() {
   return (
     <DashboardLayout role="district">
       <div className="row g-4 mb-4">
-        <div className="col-lg-8">
+        <div className="col-xl-8">
           <div
-            className="card border-0 shadow-sm rounded-4 overflow-hidden h-100"
+            className="card border-0 shadow-sm rounded-4 overflow-hidden text-white h-100"
             style={{
               background:
-                "linear-gradient(135deg, #198754 0%, #20c997 100%)",
+                "linear-gradient(135deg, #047857 0%, #059669 45%, #10b981 100%)",
             }}
           >
-            <div className="card-body p-4 text-white">
-              <div className="d-flex justify-content-between align-items-start gap-3">
+            <div className="card-body p-4 p-lg-5">
+              <div className="d-flex justify-content-between align-items-start gap-3 mb-4">
                 <div>
-                  <span className="badge bg-white text-success mb-3">
+                  <span className="badge bg-white text-success px-3 py-2 rounded-3 mb-3">
                     Dashboard Daerah
                   </span>
 
-                  <h2 className="fw-bold mb-2">
-                    Selamat datang,{" "}
-                    {currentUser.full_name || currentUser.name || "Pengguna"}
-                  </h2>
+                  <h1 className="fw-bold mb-3" style={{ fontSize: 38 }}>
+                    Selamat datang, {displayName}
+                  </h1>
 
-                  <p className="mb-1 opacity-75">
-                    {officialName || `Majlis Pengakap Daerah ${district || "-"}`}
-                  </p>
+                  <div className="fs-5 opacity-75 mb-1">
+                    Majlis Pengakap Daerah {districtTitle}
+                  </div>
 
-                  <p className="mb-0 opacity-75">
-                    {district || "-"}
-                    {state ? `, ${state}` : ""}
-                  </p>
+                  <div className="fs-6 opacity-75">
+                    {scoutDistrict || "Data daerah anda"}
+                  </div>
                 </div>
 
-                <div className="text-end">
-                  <div className="bg-white bg-opacity-25 rounded-4 p-3">
-                    <i className="bi bi-shield-check fs-1"></i>
-                  </div>
+                <div
+                  className="d-none d-md-flex align-items-center justify-content-center rounded-4"
+                  style={{
+                    width: 96,
+                    height: 96,
+                    background: "rgba(255,255,255,.22)",
+                    fontSize: 48,
+                  }}
+                >
+                  <i className="bi bi-shield-check"></i>
                 </div>
               </div>
 
-              <div className="row g-3 mt-4">
-                <div className="col-6 col-md-3">
-                  <div className="bg-white bg-opacity-25 rounded-4 p-3">
-                    <div className="fw-bold fs-4">{stats.totalMembers}</div>
-                    <small className="opacity-75">Jumlah Ahli</small>
+              <div className="row g-3 mt-2">
+                <div className="col-6 col-xl">
+                  <div
+                    className="rounded-4 p-3 h-100"
+                    style={{ background: "rgba(255,255,255,.20)" }}
+                  >
+                    <div className="fs-2 fw-bold">{stats.totalMembers}</div>
+                    <div className="small opacity-75">Jumlah Ahli</div>
                   </div>
                 </div>
 
-                <div className="col-6 col-md-3">
-                  <div className="bg-white bg-opacity-25 rounded-4 p-3">
-                    <div className="fw-bold fs-4">{stats.totalGroups}</div>
-                    <small className="opacity-75">Kumpulan</small>
+                <div className="col-6 col-xl">
+                  <div
+                    className="rounded-4 p-3 h-100"
+                    style={{ background: "rgba(255,255,255,.20)" }}
+                  >
+                    <div className="fs-2 fw-bold">{stats.activeGroups}</div>
+                    <div className="small opacity-75">Kumpulan Aktif</div>
                   </div>
                 </div>
 
-                <div className="col-6 col-md-3">
-                  <div className="bg-white bg-opacity-25 rounded-4 p-3">
-                    <div className="fw-bold fs-4">{stats.groupLeaders}</div>
-                    <small className="opacity-75">Pemimpin</small>
+                <div className="col-6 col-xl">
+                  <div
+                    className="rounded-4 p-3 h-100"
+                    style={{ background: "rgba(255,255,255,.20)" }}
+                  >
+                    <div className="fs-2 fw-bold">{stats.groupLeaders}</div>
+                    <div className="small opacity-75">Pemimpin Kumpulan</div>
                   </div>
                 </div>
 
-                <div className="col-6 col-md-3">
-                  <div className="bg-white bg-opacity-25 rounded-4 p-3">
-                    <div className="fw-bold fs-4">
-                      {stats.assistantLeaders}
-                    </div>
-                    <small className="opacity-75">Penolong</small>
+                <div className="col-6 col-xl">
+                  <div
+                    className="rounded-4 p-3 h-100"
+                    style={{ background: "rgba(255,255,255,.20)" }}
+                  >
+                    <div className="fs-2 fw-bold">{stats.assistantLeaders}</div>
+                    <div className="small opacity-75">Penolong Pemimpin</div>
+                  </div>
+                </div>
+
+                <div className="col-6 col-xl">
+                  <div
+                    className="rounded-4 p-3 h-100"
+                    style={{ background: "rgba(255,255,255,.20)" }}
+                  >
+                    <div className="fs-2 fw-bold">{stats.assistantCommissioners}</div>
+                    <div className="small opacity-75">Penolong Pesuruhjaya</div>
                   </div>
                 </div>
               </div>
@@ -627,413 +468,264 @@ export default function DistrictDashboard() {
           </div>
         </div>
 
-        <div className="col-lg-4">
+        <div className="col-xl-4">
           <div className="card border-0 shadow-sm rounded-4 h-100">
             <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-start mb-4">
+              <div className="d-flex justify-content-between align-items-start mb-3">
                 <div>
-                  <h5 className="fw-bold mb-1">Status Environment</h5>
-                  <p className="text-muted small mb-0">Keadaan daerah semasa</p>
+                  <h4 className="fw-bold mb-1">Status Daerah</h4>
+                  <p className="text-muted mb-0">
+                    Ringkasan operasi daerah anda
+                  </p>
                 </div>
 
-                <span
-                  className={`badge px-3 py-2 ${
-                    environmentStatus === "Aktif"
-                      ? "bg-success"
-                      : "bg-warning text-dark"
-                  }`}
-                >
-                  {environmentStatus}
-                </span>
+                <span className="badge bg-success px-3 py-2">Aktif</span>
               </div>
 
-              <div className="d-grid gap-2">
-                <Link to="/district/users" className="btn btn-outline-success">
-                  <i className="bi bi-person-plus me-1"></i>
+              <div className="d-grid gap-2 mt-4">
+                <Link
+                  to="/district/users"
+                  className="btn btn-outline-success rounded-3 py-2"
+                >
+                  <i className="bi bi-person-plus me-2"></i>
                   Tambah Pengguna
                 </Link>
 
-                <Link to="/district/groups" className="btn btn-outline-success">
-                  <i className="bi bi-building-add me-1"></i>
+                <Link
+                  to="/district/groups"
+                  className="btn btn-outline-success rounded-3 py-2"
+                >
+                  <i className="bi bi-building-add me-2"></i>
                   Urus Kumpulan
                 </Link>
 
-                <Link to="/district/members" className="btn btn-success">
-                  <i className="bi bi-people me-1"></i>
+                <Link
+                  to="/district/members"
+                  className="btn btn-success rounded-3 py-2"
+                >
+                  <i className="bi bi-people me-2"></i>
                   Urus Ahli
+                </Link>
+
+                <Link
+                  to="/district/audit-log"
+                  className="btn btn-light border rounded-3 py-2"
+                >
+                  <i className="bi bi-journal-text me-2"></i>
+                  Lihat Log Audit
                 </Link>
               </div>
 
-              <hr />
+              <hr className="my-4" />
 
-              <div className="small text-muted">
-                <i className="bi bi-info-circle me-1"></i>
-                Semua statistik dipaparkan berdasarkan daerah anda sahaja.
+              <div className="alert alert-light border rounded-4 mb-0">
+                <i className="bi bi-info-circle text-success me-2"></i>
+                Data dashboard ini hanya memaparkan rekod untuk daerah anda.
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="row g-3 mb-4">
-        <div className="col-md-3">
+      <div className="row g-4 mb-4">
+        <div className="col-md-4">
           <StatCard
             title="Ahli Aktif"
             value={stats.activeMembers}
-            subtitle={`${percentage(
+            subtitle={`${getPercent(
               stats.activeMembers,
               stats.totalMembers
             )}% daripada jumlah ahli`}
             icon="bi-person-check"
-            colorClass="bg-success-subtle text-success"
+            variant="success"
           />
         </div>
 
-        <div className="col-md-3">
+        <div className="col-md-4">
           <StatCard
             title="Ahli Tidak Aktif"
             value={stats.inactiveMembers}
             subtitle="Rekod ahli inactive"
             icon="bi-person-dash"
-            colorClass="bg-secondary-subtle text-secondary"
+            variant="secondary"
           />
         </div>
 
-        <div className="col-md-3">
+        <div className="col-md-4">
           <StatCard
             title="Kumpulan Aktif"
             value={stats.activeGroups}
             subtitle={`${stats.totalGroups} jumlah kumpulan`}
             icon="bi-building"
-            colorClass="bg-primary-subtle text-primary"
+            variant="primary"
           />
         </div>
 
-        <div className="col-md-3">
+        {/* <div className="col-md-6 col-xl-3">
           <StatCard
             title="Penolong Pesuruhjaya"
             value={stats.assistantCommissioners}
             subtitle="Pegawai bantuan daerah"
             icon="bi-person-badge"
-            colorClass="bg-info-subtle text-info"
+            variant="info"
           />
-        </div>
+        </div> */}
       </div>
 
       <div className="row g-4">
-        <div className="col-lg-7">
+        <div className="col-xl-7">
           <div className="card border-0 shadow-sm rounded-4 h-100">
-            <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-center mb-4">
+            <div className="card-header bg-white border-0 p-4">
+              <div className="d-flex justify-content-between align-items-center gap-3">
                 <div>
-                  <h5 className="fw-bold mb-1">
-                    Pecahan Ahli Mengikut Kategori
-                  </h5>
+                  <h5 className="fw-bold mb-1">Ahli Terbaru</h5>
                   <p className="text-muted small mb-0">
-                    Ringkasan kategori ahli Pengakap.
-                  </p>
-                </div>
-
-                <span className="badge bg-success-subtle text-success">
-                  {stats.totalMembers} ahli
-                </span>
-              </div>
-
-              {membersByCategory.length === 0 ? (
-                <div className="text-center text-muted py-5">
-                  <i className="bi bi-pie-chart fs-1 d-block mb-2"></i>
-                  Tiada data kategori ahli.
-                </div>
-              ) : (
-                <div className="d-grid gap-3">
-                  {membersByCategory.map((item, index) => (
-                    <div key={item.category}>
-                      <div className="d-flex justify-content-between align-items-center mb-2">
-                        <div className="d-flex align-items-center gap-2">
-                          <span
-                            className={`rounded-circle d-inline-block ${softBg(
-                              index
-                            )}`}
-                            style={{ width: 10, height: 10 }}
-                          ></span>
-                          <span className="fw-semibold small">
-                            {item.category}
-                          </span>
-                        </div>
-
-                        <div className="small text-muted">
-                          <strong>{item.count}</strong>{" "}
-                          ({percentage(item.count, stats.totalMembers)}%)
-                        </div>
-                      </div>
-
-                      <div className="progress" style={{ height: 9 }}>
-                        <div
-                          className="progress-bar bg-success"
-                          style={{
-                            width: `${percentage(
-                              item.count,
-                              stats.totalMembers
-                            )}%`,
-                          }}
-                        ></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="col-lg-5">
-          <div className="card border-0 shadow-sm rounded-4 h-100">
-            <div className="card-body p-4">
-              <h5 className="fw-bold mb-1">Ahli Mengikut Kumpulan</h5>
-              <p className="text-muted small mb-4">
-                Kumpulan dengan jumlah ahli tertinggi.
-              </p>
-
-              {membersByGroup.length === 0 ? (
-                <div className="text-center text-muted py-5">
-                  <i className="bi bi-building fs-1 d-block mb-2"></i>
-                  Tiada data kumpulan ahli.
-                </div>
-              ) : (
-                <div className="d-grid gap-3">
-                  {membersByGroup.map((item, index) => (
-                    <div
-                      key={item.groupName}
-                      className="d-flex align-items-center gap-3"
-                    >
-                      <div
-                        className={`rounded-4 d-flex align-items-center justify-content-center fw-bold ${softBg(
-                          index
-                        )}`}
-                        style={{ width: 42, height: 42 }}
-                      >
-                        {index + 1}
-                      </div>
-
-                      <div className="flex-grow-1">
-                        <div className="d-flex justify-content-between">
-                          <span className="fw-semibold small">
-                            {item.groupName}
-                          </span>
-                          <span className="small text-muted">
-                            {item.count} ahli
-                          </span>
-                        </div>
-
-                        <div className="progress mt-2" style={{ height: 7 }}>
-                          <div
-                            className="progress-bar bg-success"
-                            style={{
-                              width: `${percentage(
-                                item.count,
-                                stats.totalMembers
-                              )}%`,
-                            }}
-                          ></div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="col-lg-6">
-          <div className="card border-0 shadow-sm rounded-4 h-100">
-            <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                  <h5 className="fw-bold mb-1">Aktiviti Akan Datang</h5>
-                  <p className="text-muted small mb-0">
-                    Aktiviti terdekat dalam daerah.
+                    5 rekod ahli terkini dalam daerah anda.
                   </p>
                 </div>
 
                 <Link
-                  to="/district/activities"
+                  to="/district/members"
                   className="btn btn-sm btn-outline-success"
                 >
                   Lihat Semua
                 </Link>
               </div>
-
-              {upcomingActivities.length === 0 ? (
-                <div className="text-center text-muted py-5">
-                  <i className="bi bi-calendar-event fs-1 d-block mb-2"></i>
-                  Tiada aktiviti akan datang.
-                </div>
-              ) : (
-                <div className="d-grid gap-3">
-                  {upcomingActivities.map((activity) => (
-                    <div
-                      key={activity.id}
-                      className="d-flex align-items-center gap-3 border rounded-4 p-3"
-                    >
-                      <div
-                        className="rounded-4 bg-success-subtle text-success d-flex align-items-center justify-content-center"
-                        style={{ width: 46, height: 46 }}
-                      >
-                        <i className="bi bi-calendar-check fs-5"></i>
-                      </div>
-
-                      <div className="flex-grow-1">
-                        <div className="fw-semibold">
-                          {getActivityName(activity)}
-                        </div>
-                        <small className="text-muted">
-                          {activity.group_name || "Semua kumpulan"}
-                        </small>
-                      </div>
-
-                      <div className="text-end small">
-                        <strong>{formatDate(getActivityDate(activity))}</strong>
-                        <div className="text-muted">
-                          {activity.status || "Akan Datang"}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
-          </div>
-        </div>
 
-        <div className="col-lg-6">
-          <div className="card border-0 shadow-sm rounded-4 h-100">
-            <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                  <h5 className="fw-bold mb-1">Kumpulan Terkini</h5>
-                  <p className="text-muted small mb-0">
-                    Senarai kumpulan / sekolah terbaru.
-                  </p>
-                </div>
-
-                <Link
-                  to="/district/groups"
-                  className="btn btn-sm btn-outline-success"
-                >
-                  Lihat Semua
-                </Link>
-              </div>
-
-              {recentGroups.length === 0 ? (
+            <div className="card-body p-4 pt-0">
+              {recentMembers.length === 0 ? (
                 <div className="text-center text-muted py-5">
-                  <i className="bi bi-building fs-1 d-block mb-2"></i>
-                  Tiada kumpulan direkodkan.
-                </div>
-              ) : (
-                <div className="d-grid gap-3">
-                  {recentGroups.map((group) => (
-                    <div
-                      key={group.id}
-                      className="d-flex align-items-center gap-3 border rounded-4 p-3"
-                    >
-                      <div
-                        className="rounded-4 bg-primary-subtle text-primary d-flex align-items-center justify-content-center"
-                        style={{ width: 46, height: 46 }}
-                      >
-                        <i className="bi bi-building fs-5"></i>
-                      </div>
-
-                      <div className="flex-grow-1">
-                        <div className="fw-semibold">
-                          {group.group_name || "-"}
-                        </div>
-                        <small className="text-muted">
-                          {group.school_name || "Tiada sekolah"}
-                        </small>
-                      </div>
-
-                      <span
-                        className={`badge ${
-                          isActive(group.status)
-                            ? "bg-success"
-                            : "bg-secondary"
-                        }`}
-                      >
-                        {normalizeStatus(group.status)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="col-12">
-          <div className="card border-0 shadow-sm rounded-4">
-            <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                  <h5 className="fw-bold mb-1">Aktiviti Sistem Terkini</h5>
-                  <p className="text-muted small mb-0">
-                    Rekod tindakan penting dalam daerah.
-                  </p>
-                </div>
-
-                <Link
-                  to="/district/audit-log"
-                  className="btn btn-sm btn-outline-success"
-                >
-                  Lihat Audit Log
-                </Link>
-              </div>
-
-              {auditLogs.length === 0 ? (
-                <div className="text-center text-muted py-5">
-                  <i className="bi bi-journal-text fs-1 d-block mb-2"></i>
-                  Tiada audit log terkini.
+                  <i className="bi bi-inbox fs-1 d-block mb-2"></i>
+                  Tiada ahli terbaru.
                 </div>
               ) : (
                 <div className="table-responsive">
                   <table className="table table-hover align-middle mb-0">
-                    <thead className="table-light">
+                    <thead>
                       <tr>
-                        <th>Tindakan</th>
-                        <th>Pengguna</th>
-                        <th>Module</th>
-                        <th>Masa</th>
+                        <th>Nama</th>
+                        <th>Kumpulan</th>
+                        <th>Status</th>
+                        <th>Daftar</th>
                       </tr>
                     </thead>
 
                     <tbody>
-                      {auditLogs.map((log) => (
-                        <tr key={log.id}>
+                      {recentMembers.map((member) => (
+                        <tr key={member.id}>
                           <td>
-                            <div className="fw-semibold">
-                              {log.description || log.action || "-"}
+                            <div className="d-flex align-items-center gap-2">
+                              <div
+                                className="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center fw-bold"
+                                style={{
+                                  width: 36,
+                                  height: 36,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {getInitials(member.full_name)}
+                              </div>
+
+                              <div>
+                                <div className="fw-semibold">
+                                  {member.full_name || "-"}
+                                </div>
+                                <small className="text-muted">
+                                  {member.member_no || "No keahlian belum diisi"}
+                                </small>
+                              </div>
                             </div>
                           </td>
 
-                          <td className="text-muted">
-                            {log.actor_name || "-"}
-                          </td>
+                          <td>{member.group_name || "-"}</td>
 
                           <td>
-                            <span className="badge bg-light text-muted">
-                              {log.module || "-"}
+                            <span
+                              className={`badge ${
+                                isActive(member.status)
+                                  ? "bg-success"
+                                  : "bg-secondary"
+                              }`}
+                            >
+                              {normalizeStatus(member.status)}
                             </span>
                           </td>
 
-                          <td className="text-muted text-nowrap">
-                            {formatDateTime(log.created_at)}
-                          </td>
+                          <td>{formatDate(member.created_at)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+
+        <div className="col-xl-5">
+          <div className="card border-0 shadow-sm rounded-4 h-100">
+            <div className="card-header bg-white border-0 p-4">
+              <h5 className="fw-bold mb-1">Ringkasan Peranan</h5>
+              <p className="text-muted small mb-0">
+                Pecahan pengguna mengikut peranan dalam daerah.
+              </p>
+            </div>
+
+            <div className="card-body p-4 pt-0">
+              <div className="d-flex flex-column gap-3">
+                <div className="p-3 rounded-4 border">
+                  <div className="d-flex justify-content-between align-items-center">
+                    <div>
+                      <div className="fw-semibold">Pemimpin Kumpulan</div>
+                      <small className="text-muted">
+                        Ketua / pemimpin untuk kumpulan sekolah
+                      </small>
+                    </div>
+
+                    <span className="badge bg-primary rounded-pill px-3 py-2">
+                      {stats.groupLeaders}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-4 border">
+                  <div className="d-flex justify-content-between align-items-center">
+                    <div>
+                      <div className="fw-semibold">Penolong Pemimpin</div>
+                      <small className="text-muted">
+                        Pembantu kepada Pemimpin Kumpulan
+                      </small>
+                    </div>
+
+                    <span className="badge bg-success rounded-pill px-3 py-2">
+                      {stats.assistantLeaders}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-4 border">
+                  <div className="d-flex justify-content-between align-items-center">
+                    <div>
+                      <div className="fw-semibold">Penolong Pesuruhjaya</div>
+                      <small className="text-muted">
+                        Pegawai bantuan di peringkat daerah
+                      </small>
+                    </div>
+
+                    <span className="badge bg-info rounded-pill px-3 py-2">
+                      {stats.assistantCommissioners}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="alert alert-info rounded-4 small mt-4 mb-0">
+                <strong>Nota:</strong> “Penolong Pemimpin” dan “Penolong
+                Pesuruhjaya” ialah dua peranan berbeza. Penolong Pemimpin
+                membantu kumpulan/sekolah, manakala Penolong Pesuruhjaya membantu
+                pentadbiran daerah.
+              </div>
             </div>
           </div>
         </div>

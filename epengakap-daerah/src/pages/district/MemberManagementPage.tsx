@@ -26,6 +26,7 @@ type Member = {
   address: string | null;
   notes: string | null;
   status: string;
+  membership_expiry_date: string | null;
   district: string | null;
   district_environment_id: string | null;
   created_at?: string;
@@ -50,6 +51,7 @@ type MemberForm = {
   group_id: string;
   group_name: string;
   category: string;
+  membership_expiry_date: string;
   age: string;
   gender: string;
   guardian_name: string;
@@ -195,6 +197,127 @@ function isValidEmail(email?: string | null) {
   if (!value) return true;
 
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function normalizeDateForInput(value?: string | null) {
+  const raw = String(value || "").trim();
+
+  if (!raw) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const cleaned = raw.replace(/[./]/g, "-");
+  const parts = cleaned.split("-").map((part) => part.trim());
+
+  if (parts.length === 3) {
+    let day = Number(parts[0]);
+    let month = Number(parts[1]);
+    let year = Number(parts[2]);
+
+    if (parts[0].length === 4) {
+      year = Number(parts[0]);
+      month = Number(parts[1]);
+      day = Number(parts[2]);
+    }
+
+    if (
+      !Number.isNaN(day) &&
+      !Number.isNaN(month) &&
+      !Number.isNaN(year) &&
+      year > 1900 &&
+      month >= 1 &&
+      month <= 12 &&
+      day >= 1 &&
+      day <= 31
+    ) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(
+        2,
+        "0"
+      )}`;
+    }
+  }
+
+  const monthMap: Record<string, string> = {
+    jan: "01",
+    januari: "01",
+    feb: "02",
+    februari: "02",
+    mac: "03",
+    march: "03",
+    apr: "04",
+    april: "04",
+    mei: "05",
+    may: "05",
+    jun: "06",
+    june: "06",
+    jul: "07",
+    july: "07",
+    ogos: "08",
+    aug: "08",
+    august: "08",
+    sep: "09",
+    sept: "09",
+    september: "09",
+    okt: "10",
+    october: "10",
+    nov: "11",
+    november: "11",
+    dis: "12",
+    december: "12",
+  };
+
+  const words = raw.toLowerCase().replace(/,/g, "").split(/\s+/);
+
+  if (words.length >= 3) {
+    const day = Number(words[0]);
+    const month = monthMap[words[1]];
+    const year = Number(words[2]);
+
+    if (!Number.isNaN(day) && month && !Number.isNaN(year)) {
+      return `${year}-${month}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  return "";
+}
+
+function displayDate(value?: string | null) {
+  if (!value) return "-";
+
+  const normalized = normalizeDateForInput(value);
+  if (!normalized) return "-";
+
+  const date = new Date(`${normalized}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleDateString("ms-MY", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getMembershipExpiryClass(value?: string | null) {
+  const normalized = normalizeDateForInput(value);
+
+  if (!normalized) return "bg-secondary";
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const expiry = new Date(`${normalized}T00:00:00`);
+  expiry.setHours(0, 0, 0, 0);
+
+  if (expiry < today) return "bg-danger";
+
+  const diffDays = Math.ceil(
+    (expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  if (diffDays <= 60) return "bg-warning text-dark";
+
+  return "bg-success";
 }
 
 async function readFileTextSmart(file: File) {
@@ -478,6 +601,8 @@ export default function MemberManagementPage() {
   );
   const [importDefaultGender, setImportDefaultGender] = useState("Lelaki");
   const [importDefaultStatus, setImportDefaultStatus] = useState("Aktif");
+  const [importDefaultExpiryDate, setImportDefaultExpiryDate] =
+    useState("2026-03-31");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -497,6 +622,7 @@ export default function MemberManagementPage() {
     group_id: "",
     group_name: "",
     category: "Pengakap Kanak-Kanak",
+    membership_expiry_date: "2026-03-31",
     age: "",
     gender: "Lelaki",
     guardian_name: "",
@@ -624,6 +750,7 @@ export default function MemberManagementPage() {
       const memberCategory = member.category || member.scout_category || "";
       const formattedIC = formatMalaysianIC(member.ic_number || "");
       const formattedPhone = formatMalaysianPhone(member.guardian_phone || "");
+      const expiryDisplay = displayDate(member.membership_expiry_date);
 
       const matchSearch =
         !keyword ||
@@ -632,6 +759,7 @@ export default function MemberManagementPage() {
         (member.email || "").toLowerCase().includes(keyword) ||
         (member.guardian_email || "").toLowerCase().includes(keyword) ||
         liveGroupName.toLowerCase().includes(keyword) ||
+        expiryDisplay.toLowerCase().includes(keyword) ||
         (member.ic_number || "").includes(cleanKeyword) ||
         formattedIC.toLowerCase().includes(keyword) ||
         (member.guardian_phone || "").includes(cleanKeyword) ||
@@ -688,6 +816,7 @@ export default function MemberManagementPage() {
       group_id: "",
       group_name: "",
       category: "Pengakap Kanak-Kanak",
+      membership_expiry_date: "2026-03-31",
       age: "",
       gender: "Lelaki",
       guardian_name: "",
@@ -721,6 +850,9 @@ export default function MemberManagementPage() {
       group_name: getLiveGroupName(member),
       category:
         member.category || member.scout_category || "Pengakap Kanak-Kanak",
+      membership_expiry_date: normalizeDateForInput(
+        member.membership_expiry_date || ""
+      ),
       age: member.age ? String(member.age) : "",
       gender: member.gender || "Lelaki",
       guardian_name: member.guardian_name || "",
@@ -793,6 +925,14 @@ export default function MemberManagementPage() {
       return false;
     }
 
+    if (
+      form.membership_expiry_date &&
+      !normalizeDateForInput(form.membership_expiry_date)
+    ) {
+      alert("Tarikh Sah Sehingga tidak sah.");
+      return false;
+    }
+
     const ageNumber = Number(form.age);
 
     if (
@@ -847,6 +987,8 @@ export default function MemberManagementPage() {
       group_name: selectedGroup?.group_name || form.group_name,
       category: form.category,
       scout_category: form.category,
+      membership_expiry_date:
+        normalizeDateForInput(form.membership_expiry_date) || null,
       age: form.age ? Number(form.age) : null,
       gender: form.gender || null,
       guardian_name: form.guardian_name.trim() || null,
@@ -1150,6 +1292,23 @@ export default function MemberManagementPage() {
               "unit pengakap",
             ]) || importDefaultCategory;
 
+          const expiryRaw =
+            getCSVValue(row, [
+              "membership_expiry_date",
+              "sah sehingga",
+              "sahsehingga",
+              "tarikh sah",
+              "tarikhsah",
+              "tarikh tamat",
+              "tarikhtamat",
+              "valid until",
+              "expiry",
+              "expiry date",
+              "membership expiry",
+            ]) || importDefaultExpiryDate;
+
+          const membershipExpiryDate = normalizeDateForInput(expiryRaw);
+
           const birthDateRaw = getCSVValue(row, [
             "tarikh lahir",
             "tarikhla",
@@ -1252,6 +1411,12 @@ export default function MemberManagementPage() {
             warningRows.push(`Row ${rowNumber}: IC tidak sah, disimpan kosong`);
           }
 
+          if (expiryRaw && !membershipExpiryDate) {
+            warningRows.push(
+              `Row ${rowNumber}: Sah Sehingga tidak sah, disimpan kosong`
+            );
+          }
+
           if (email && !isValidEmail(email)) {
             warningRows.push(
               `Row ${rowNumber}: email tidak sah, disimpan kosong`
@@ -1288,6 +1453,7 @@ export default function MemberManagementPage() {
             group_name: selectedGroup?.group_name || groupName.trim() || null,
             category,
             scout_category: category,
+            membership_expiry_date: membershipExpiryDate || null,
             age:
               ageNumber && !Number.isNaN(ageNumber) && ageNumber > 0
                 ? ageNumber
@@ -1388,7 +1554,9 @@ export default function MemberManagementPage() {
         duplicateICs.length
           ? `${duplicateICs.length} IC sudah wujud dan telah di-skip.`
           : "",
-        skippedRows.length ? `${skippedRows.length} row kosong/invalid di-skip.` : "",
+        skippedRows.length
+          ? `${skippedRows.length} row kosong/invalid di-skip.`
+          : "",
         warningRows.length
           ? `${warningRows.length} warning dibetulkan secara automatik.`
           : "",
@@ -1573,6 +1741,7 @@ export default function MemberManagementPage() {
                 <th>No IC / MyKid</th>
                 <th>Kumpulan</th>
                 <th>Kategori</th>
+                <th>Sah Sehingga</th>
                 <th>Umur</th>
                 <th>Jantina</th>
                 <th>Telefon Penjaga</th>
@@ -1584,14 +1753,14 @@ export default function MemberManagementPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-5">
+                  <td colSpan={11} className="text-center py-5">
                     <div className="spinner-border text-success"></div>
                     <p className="text-muted mt-3 mb-0">Memuatkan data...</p>
                   </td>
                 </tr>
               ) : filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-5 text-muted">
+                  <td colSpan={11} className="text-center py-5 text-muted">
                     <i className="bi bi-inbox fs-1 d-block mb-2"></i>
                     Tiada ahli dijumpai.
                   </td>
@@ -1621,6 +1790,21 @@ export default function MemberManagementPage() {
                     <td>{displayMalaysianIC(member.ic_number)}</td>
                     <td>{getLiveGroupName(member)}</td>
                     <td>{member.category || member.scout_category || "-"}</td>
+
+                    <td>
+                      {member.membership_expiry_date ? (
+                        <span
+                          className={`badge ${getMembershipExpiryClass(
+                            member.membership_expiry_date
+                          )}`}
+                        >
+                          {displayDate(member.membership_expiry_date)}
+                        </span>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+
                     <td>{member.age || "-"}</td>
                     <td>{member.gender || "-"}</td>
                     <td>{displayMalaysianPhone(member.guardian_phone)}</td>
@@ -1746,7 +1930,7 @@ export default function MemberManagementPage() {
                     </select>
                   </div>
 
-                  <div className="col-md-3">
+                  <div className="col-md-2">
                     <label className="form-label">Default Jantina</label>
                     <select
                       className="form-select"
@@ -1760,7 +1944,7 @@ export default function MemberManagementPage() {
                     </select>
                   </div>
 
-                  <div className="col-md-3">
+                  <div className="col-md-2">
                     <label className="form-label">Default Status</label>
                     <select
                       className="form-select"
@@ -1772,6 +1956,19 @@ export default function MemberManagementPage() {
                         <option key={status}>{status}</option>
                       ))}
                     </select>
+                  </div>
+
+                  <div className="col-md-2">
+                    <label className="form-label">Default Sah Sehingga</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={importDefaultExpiryDate}
+                      onChange={(e) =>
+                        setImportDefaultExpiryDate(e.target.value)
+                      }
+                      disabled={importing}
+                    />
                   </div>
                 </div>
 
@@ -1802,7 +1999,7 @@ export default function MemberManagementPage() {
                     <div className="text-muted mt-2">
                       CSV sahaja. Format BIL, NO KEAHLIAN, NAMA PEN, NO. K.P.,
                       JANTINA, KETURUNAN, TARIKH LAHIR, UNIT PENG, NO. WOS,
-                      EMAIL disokong.
+                      EMAIL, SAH SEHINGGA disokong.
                     </div>
 
                     {importFile && (
@@ -1829,11 +2026,11 @@ export default function MemberManagementPage() {
                   </div>
                   <code>
                     BIL, NO KEAHLIAN, NAMA PEN, NO. K.P., JANTINA, KETURUNAN,
-                    TARIKH LAHIR, UNIT PENG, NO. WOS, EMAIL
+                    TARIKH LAHIR, UNIT PENG, NO. WOS, EMAIL, SAH SEHINGGA
                   </code>
                   <div className="small text-muted mt-2">
-                    Kalau IC sudah wujud, sistem akan skip ahli tersebut dan
-                    import ahli baru sahaja.
+                    IC dan email boleh kosong. Kalau IC sudah wujud, sistem akan
+                    skip ahli tersebut dan import ahli baru sahaja.
                   </div>
                 </div>
               </div>
@@ -1928,7 +2125,7 @@ export default function MemberManagementPage() {
                           member_no: e.target.value,
                         })
                       }
-                      placeholder="Contoh: PGK-2026-001"
+                      placeholder="Contoh: WP118-1812"
                       disabled={saving}
                     />
                   </div>
@@ -1947,7 +2144,10 @@ export default function MemberManagementPage() {
                   </div>
 
                   <div className="col-md-6">
-                    <label className="form-label">IC/MyKid</label>
+                    <label className="form-label">
+                      IC/MyKid{" "}
+                      <span className="text-muted small">(optional)</span>
+                    </label>
                     <input
                       className="form-control"
                       value={form.ic_number}
@@ -1957,14 +2157,20 @@ export default function MemberManagementPage() {
                           ic_number: formatMalaysianIC(e.target.value),
                         })
                       }
-                      placeholder="030101-03-1234"
+                      placeholder="Kosongkan jika tiada IC/MyKid"
                       maxLength={14}
                       disabled={saving}
                     />
+                    <small className="text-muted">
+                      Isi hanya jika ada. Contoh: 030101-03-1234
+                    </small>
                   </div>
 
                   <div className="col-md-6">
-                    <label className="form-label">Email</label>
+                    <label className="form-label">
+                      Email Ahli{" "}
+                      <span className="text-muted small">(optional)</span>
+                    </label>
                     <input
                       type="email"
                       className="form-control"
@@ -1972,9 +2178,12 @@ export default function MemberManagementPage() {
                       onChange={(e) =>
                         setForm({ ...form, email: e.target.value })
                       }
-                      placeholder="email@example.com"
+                      placeholder="Kosongkan jika tiada email"
                       disabled={saving}
                     />
+                    <small className="text-muted">
+                      Email ahli tidak wajib. Boleh kosong.
+                    </small>
                   </div>
 
                   <div className="col-md-6">
@@ -2018,6 +2227,25 @@ export default function MemberManagementPage() {
                         <option key={category}>{category}</option>
                       ))}
                     </select>
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Sah Sehingga</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={form.membership_expiry_date}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          membership_expiry_date: e.target.value,
+                        })
+                      }
+                      disabled={saving}
+                    />
+                    <small className="text-muted">
+                      Contoh pada kad: Sah Sehingga 31 Mac 2026.
+                    </small>
                   </div>
 
                   <div className="col-md-3">
@@ -2162,8 +2390,8 @@ export default function MemberManagementPage() {
 
                 <div className="alert alert-info rounded-4 small mt-4 mb-0">
                   <i className="bi bi-info-circle me-2"></i>
-                  Pesuruhjaya Daerah boleh mengurus ahli untuk semua kumpulan
-                  dalam daerah ini.
+                  IC/MyKid dan email ahli tidak wajib. Minimum data yang perlu
+                  ialah nama penuh dan kumpulan.
                 </div>
               </div>
 
@@ -2246,6 +2474,13 @@ export default function MemberManagementPage() {
                       {selectedMember.category ||
                         selectedMember.scout_category ||
                         "-"}
+                    </strong>
+                  </div>
+
+                  <div className="list-group-item d-flex justify-content-between">
+                    <span>Sah Sehingga</span>
+                    <strong>
+                      {displayDate(selectedMember.membership_expiry_date)}
                     </strong>
                   </div>
 
